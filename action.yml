@@ -55,7 +55,7 @@ runs:
         FALLBACK_TOKEN: ${{ inputs.FALLBACK_TOKEN }}
         PIPELINES_TOKEN: ${{ steps.fetch-credentials.outputs.pipelines_token }}
       run: |
-        if [[ -n "$PIPELINES_TOKEN" ]]; then
+        if [[ -z "$PIPELINES_TOKEN" ]]; then
           echo "PIPELINES_TOKEN=$PIPELINES_TOKEN" >> "$GITHUB_OUTPUT"
         else
           echo "PIPELINES_TOKEN=$FALLBACK_TOKEN" >> "$GITHUB_OUTPUT"
