@@ -13,6 +13,7 @@ runs:
   using: composite
   steps:
     - name: Install OIDC Client from Core Package
+      shell: bash
       run: npm install @actions/core@1.6.0 @actions/http-client
 
     - name: Get Id Token
@@ -27,7 +28,7 @@ runs:
     
     - name: Get Provider Token
       id: get_provider_token
-      if: ${{ steps.get_id_token.outputs.id_token != "" }}
+      if: ${{ steps.get_id_token.outputs.id_token != '' }}
       continue-on-error: true
       env:
         ID_TOKEN: ${{ steps.get_id_token.outputs.id_token }}
@@ -37,7 +38,7 @@ runs:
 
     - name: "Fetch credentials"
       id: fetch-credentials
-      if: ${{ steps.get_provider_token.outputs.provider_token  != "" }}
+      if: ${{ steps.get_provider_token.outputs.provider_token != '' }}
       continue-on-error: true
       shell: bash
       env:
