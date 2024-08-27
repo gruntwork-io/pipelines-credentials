@@ -1,0 +1,59 @@
+name: Pipelines Credentials
+description: Fetch Pipelines Credentials
+inputs:
+  PIPELINES_TOKEN_PATH:
+    required: true
+  FALLBACK_TOKEN:
+    required: true
+outputs:
+  PIPELINES_TOKEN:
+    value: ${{ steps.choose-token.PIPELINES_TOKEN }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install OIDC Client from Core Package
+      continue-on-error: true
+      run: npm install @actions/core@1.6.0 @actions/http-client
+
+    - name: Get Id Token
+      id: get_id_token
+      continue-on-error: true
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const localCore = require('@actions/core')
+          let id_token = await localCore.getIDToken("https://app.gruntwork.io/api/v1/tokens/auth/login")
+          localCore.setOutput('id_token', id_token)
+    
+    - name: Get Provider Token
+      id: get_provider_token
+      continue-on-error: true
+      env:
+        TOKEN: ${{ steps.get_id_token.outputs.id_token }}
+      run: |
+        provider_token="$(curl -s -H "Authorization: bearer $TOKEN" -XPOST https://app.gruntwork.io/api/v1/tokens/auth/login | jq -r '.token')"
+        echo "provider_token=$provider_token" >> "$GITHUB_OUTPUT"
+
+    - name: "Fetch credentials"
+      id: fetch-credentials
+      continue-on-error: true
+      shell: bash
+      env:
+        PIPELINES_TOKEN_PATH: ${{ inputs.PIPELINES_TOKEN_PATH }}
+        PROVIDER_TOKEN: ${{ steps.get_id_token.outputs.PROVIDER_TOKEN }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: "$ACTION_PATH/scripts/fetch-credentials.sh"
+
+    - name: "Choose token"
+      id: "choose-token"
+      shell: bash
+      env:
+        FALLBACK_TOKEN: ${{ inputs.FALLBACK_TOKEN }}
+        PIPELINES_TOKEN: ${{ steps.fetch-credentials.outputs.pipelines_token }}
+      run: |
+        if [[ -n "$PIPELINES_TOKEN" ]]; then
+          echo "PIPELINES_TOKEN=$PIPELINES_TOKEN" >> "$GITHUB_OUTPUT"
+        else
+          echo "PIPELINES_TOKEN=$FALLBACK_TOKEN" >> "$GITHUB_OUTPUT"
+        fi
