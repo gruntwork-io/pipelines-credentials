@@ -23,7 +23,7 @@ runs:
       with:
         script: |
           const localCore = require('@actions/core')
-          let id_token = await localCore.getIDToken("https://app.gruntwork.io/api/v1/tokens/auth/login")
+          let id_token = await localCore.getIDToken("https://aperture-dev-git-pipelines-api-gruntwork.vercel.app/api/v1/tokens/auth/login")
           localCore.setOutput('id_token', id_token)
     
     - name: Get Provider Token
@@ -34,7 +34,7 @@ runs:
       env:
         ID_TOKEN: ${{ steps.get_id_token.outputs.id_token }}
       run: |
-        provider_token="$(curl -s -H "Authorization: Bearer $ID_TOKEN" -XPOST https://app.gruntwork.io/api/v1/tokens/auth/login | jq -r '.token')"
+        provider_token="$(curl -s -H "Authorization: Bearer $ID_TOKEN" -XPOST https://aperture-dev-git-pipelines-api-gruntwork.vercel.app/api/v1/tokens/auth/login | jq -r '.token')"
         echo "provider_token=$provider_token" >> "$GITHUB_OUTPUT"
 
     - name: "Fetch credentials"
