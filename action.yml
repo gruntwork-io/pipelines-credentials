@@ -56,7 +56,9 @@ runs:
         PIPELINES_TOKEN: ${{ steps.fetch-credentials.outputs.pipelines_token }}
       run: |
         if [[ -n "$PIPELINES_TOKEN" ]]; then
+          echo "Setting PIPELINES_TOKEN to GitHubApp token"
           echo "PIPELINES_TOKEN=$PIPELINES_TOKEN" >> "$GITHUB_OUTPUT"
         else
+          echo "Setting PIPELINES_TOKEN to fallback token"
           echo "PIPELINES_TOKEN=$FALLBACK_TOKEN" >> "$GITHUB_OUTPUT"
         fi
