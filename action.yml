@@ -23,7 +23,7 @@ runs:
       with:
         script: |
           const localCore = require('@actions/core')
-          let id_token = await localCore.getIDToken("https://aperture-dev-git-pipelines-api-gruntwork.vercel.app/api/v1/tokens/auth/login")
+          let id_token = await localCore.getIDToken("http://127.0.0.1:3000")
           localCore.setOutput('id_token', id_token)
     
     - name: Get Provider Token
