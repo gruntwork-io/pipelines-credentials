@@ -38,11 +38,11 @@ runs:
         result="$(curl -s -H "Authorization: Bearer $ID_TOKEN" -XPOST https://aperture-dev-git-pipelines-api-gruntwork.vercel.app/api/v1/tokens/auth/login)"
         echo "$result"
         provider_token="$(echo "$result" | jq -r '.token')"
-        echo "provider_token=$provider_token" >> "$GITHUB_OUTPUT"
+        echo "PROVIDER_TOKEN=$provider_token" >> "$GITHUB_OUTPUT"
 
     - name: "Fetch credentials"
       id: fetch-credentials
-      if: ${{ steps.get_provider_token.outputs.provider_token != '' }}
+      if: ${{ steps.get_provider_token.outputs.PROVIDER_TOKEN != '' }}
       continue-on-error: true
       shell: bash
       env:
