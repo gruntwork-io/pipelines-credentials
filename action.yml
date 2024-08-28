@@ -34,7 +34,9 @@ runs:
       env:
         ID_TOKEN: ${{ steps.get_id_token.outputs.id_token }}
       run: |
-        provider_token="$(curl -s -H "Authorization: Bearer $ID_TOKEN" -XPOST https://aperture-dev-git-pipelines-api-gruntwork.vercel.app/api/v1/tokens/auth/login | jq -r '.token')"
+        result="$(curl -s -H "Authorization: Bearer $ID_TOKEN" -XPOST https://aperture-dev-git-pipelines-api-gruntwork.vercel.app/api/v1/tokens/auth/login)"
+        echo "$result"
+        provider_token="$(echo "$result" | jq -r '.token')"
         echo "provider_token=$provider_token" >> "$GITHUB_OUTPUT"
 
     - name: "Fetch credentials"
