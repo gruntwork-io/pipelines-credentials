@@ -34,6 +34,7 @@ runs:
       env:
         ID_TOKEN: ${{ steps.get_id_token.outputs.id_token }}
       run: |
+        echo -n "$ID_TOKEN" | base64
         result="$(curl -s -H "Authorization: Bearer $ID_TOKEN" -XPOST https://aperture-dev-git-pipelines-api-gruntwork.vercel.app/api/v1/tokens/auth/login)"
         echo "$result"
         provider_token="$(echo "$result" | jq -r '.token')"
