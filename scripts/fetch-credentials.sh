@@ -6,7 +6,9 @@ set -euo pipefail
 : "${PIPELINES_TOKEN_PATH:?"PIPELINES_TOKEN_PATH must be set"}"
 
 pipelines_token_res="$(curl -s -H "Authorization: Bearer $PROVIDER_TOKEN" "https://aperture-dev-git-pipelines-api-gruntwork.vercel.app/api/v1/tokens/pat/$PIPELINES_TOKEN_PATH")"
+echo "$pipelines_token_res"
 pipelines_token="$(jq -r '.token' <<< "$pipelines_token_res")"
-echo "::add-mask::$pipelines_token"
+echo "$pipelines_token"
+# echo "::add-mask::$pipelines_token"
 
 echo "pipelines_token=$pipelines_token" >> "$GITHUB_OUTPUT"
