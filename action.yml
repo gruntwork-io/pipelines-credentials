@@ -47,7 +47,7 @@ runs:
       shell: bash
       env:
         PIPELINES_TOKEN_PATH: ${{ inputs.PIPELINES_TOKEN_PATH }}
-        PROVIDER_TOKEN: ${{ steps.get_id_token.outputs.PROVIDER_TOKEN }}
+        PROVIDER_TOKEN: ${{ steps.get_provider_token.outputs.PROVIDER_TOKEN }}
         ACTION_PATH: ${{ github.action_path }}
       run: "$ACTION_PATH/scripts/fetch-credentials.sh"
 
