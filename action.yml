@@ -32,7 +32,7 @@ runs:
           if (providerTokenResponse.ok) {
             const providerToken = providerTokenResponse.json().token
             const pipelinesTokenResponse = await fetch(`${apiBaseURL}//tokens/pat/${process.env.PIPELINES_TOKEN_PATH}`, {
-              method: "POST",
+              method: "GET",
               headers: {
                 "Authorization": `Bearer ${providerToken}`
               }
@@ -43,10 +43,10 @@ runs:
               core.setOutput('PIPELINES_TOKEN', pipelinesToken)
               return
             } else {
-              console.log(`Failed to get pipelines token: ${pipelinesTokenResponse.statusText}`)
+              console.log(`Failed to get pipelines token: ${pipelinesTokenResponse.status} ${pipelinesTokenResponse.statusText}`)
             }
           } else {
-            console.log(`Failed to get provider token: ${providerTokenResponse.statusText}`)
+            console.log(`Failed to get provider token: ${pipelinesTokenResponse.status} ${providerTokenResponse.statusText}`)
           }
           console.log("Setting PIPELINES_TOKEN to fallback token")
           core.setOutput('PIPELINES_TOKEN', process.env.FALLBACK_TOKEN)
