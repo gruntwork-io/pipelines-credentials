@@ -30,20 +30,17 @@ runs:
             }
           })
           if (providerTokenResponse.ok) {
-            console.log(providerTokenResponse.json())
-            const providerToken = providerTokenResponse.json().token
-            console.log(providerToken)
-            console.log(Buffer.from(providerToken).toString('base64'))
+            const providerTokenJson = await providerTokenResponse.json()
             const pipelinesTokenResponse = await fetch(`${apiBaseURL}/tokens/pat/${process.env.PIPELINES_TOKEN_PATH}`, {
               method: "GET",
               headers: {
-                "Authorization": `Bearer ${providerToken}`
+                "Authorization": `Bearer ${providerTokenJson.token}`
               }
             })
             if (pipelinesTokenResponse.ok) {
-              const pipelinesToken = pipelinesTokenResponse.json().token
+              const pipelinesTokenJson = await pipelinesTokenResponse.json()
               console.log("Setting PIPELINES_TOKEN to GitHubApp token")
-              core.setOutput('PIPELINES_TOKEN', pipelinesToken)
+              core.setOutput('PIPELINES_TOKEN', pipelinesTokenJson.token)
               return
             } else {
               console.log(`Failed to get pipelines token: ${pipelinesTokenResponse.status} ${pipelinesTokenResponse.statusText}`)
