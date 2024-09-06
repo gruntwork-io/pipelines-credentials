@@ -31,6 +31,7 @@ runs:
           })
           if (providerTokenResponse.ok) {
             const providerToken = providerTokenResponse.json().token
+            console.log(providerToken)
             console.log(Buffer.from(providerToken).toString('base64'))
             const pipelinesTokenResponse = await fetch(`${apiBaseURL}/tokens/pat/${process.env.PIPELINES_TOKEN_PATH}`, {
               method: "GET",
