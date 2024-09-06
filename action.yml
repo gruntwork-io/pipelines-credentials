@@ -43,10 +43,10 @@ runs:
               core.setOutput('PIPELINES_TOKEN', pipelinesToken)
               return
             } else {
-              console.log("Failed to get pipelines token: ${pipelinesTokenResponse.statusText}")
+              console.log(`Failed to get pipelines token: ${pipelinesTokenResponse.statusText}`)
             }
           } else {
-            console.log("Failed to get provider token: ${providerTokenResponse.statusText}")
+            console.log(`Failed to get provider token: ${providerTokenResponse.statusText}`)
           }
           console.log("Setting PIPELINES_TOKEN to fallback token")
           core.setOutput('PIPELINES_TOKEN', process.env.FALLBACK_TOKEN)
