@@ -7,60 +7,48 @@ inputs:
     required: true
 outputs:
   PIPELINES_TOKEN:
-    value: ${{ steps.choose-token.outputs.PIPELINES_TOKEN }}
+    value: ${{ steps.get_token.outputs.PIPELINES_TOKEN }}
 
 runs:
   using: composite
   steps:
-    # - name: Install OIDC Client from Core Package
-    #   shell: bash
-    #   run: npm install @actions/core@1.6.0 @actions/http-client
-
-    - name: Get Id Token
-      id: get_id_token
+    - name: Fetch Pipelines Token
+      id: get_token
       continue-on-error: true
       uses: actions/github-script@v7
-      with:
-        script: |
-          let id_token = await core.getIDToken("http://127.0.0.1:3000")
-          core.setOutput('id_token', id_token)
-    
-    - name: Get Provider Token
-      id: get_provider_token
-      if: ${{ steps.get_id_token.outputs.id_token != '' }}
-      continue-on-error: true
-      shell: bash
-      env:
-        ID_TOKEN: ${{ steps.get_id_token.outputs.id_token }}
-      run: |
-        echo -n "$ID_TOKEN" | base64
-        result="$(curl -s -H "Authorization: Bearer $ID_TOKEN" -XPOST https://aperture-dev-git-pipelines-api-gruntwork.vercel.app/api/v1/tokens/auth/login)"
-        echo "$result"
-        provider_token="$(echo "$result" | jq -r '.token')"
-        echo "PROVIDER_TOKEN=$provider_token" >> "$GITHUB_OUTPUT"
-
-    - name: "Fetch credentials"
-      id: fetch-credentials
-      if: ${{ steps.get_provider_token.outputs.PROVIDER_TOKEN != '' }}
-      continue-on-error: true
-      shell: bash
-      env:
-        PIPELINES_TOKEN_PATH: ${{ inputs.PIPELINES_TOKEN_PATH }}
-        PROVIDER_TOKEN: ${{ steps.get_provider_token.outputs.PROVIDER_TOKEN }}
-        ACTION_PATH: ${{ github.action_path }}
-      run: "$ACTION_PATH/scripts/fetch-credentials.sh"
-
-    - name: "Choose token"
-      id: "choose-token"
-      shell: bash
       env:
         FALLBACK_TOKEN: ${{ inputs.FALLBACK_TOKEN }}
-        PIPELINES_TOKEN: ${{ steps.fetch-credentials.outputs.pipelines_token }}
-      run: |
-        if [[ -n "$PIPELINES_TOKEN" ]]; then
-          echo "Setting PIPELINES_TOKEN to GitHubApp token"
-          echo "PIPELINES_TOKEN=$PIPELINES_TOKEN" >> "$GITHUB_OUTPUT"
-        else
-          echo "Setting PIPELINES_TOKEN to fallback token"
-          echo "PIPELINES_TOKEN=$FALLBACK_TOKEN" >> "$GITHUB_OUTPUT"
-        fi
+        PIPELINES_TOKEN_PATH: ${{ inputs.PIPELINES_TOKEN_PATH }}
+      with:
+        script: |
+          const aud = "http://127.0.0.1:3000"
+          const apiBaseURL = "https://aperture-dev-git-pipelines-api-gruntwork.vercel.app/api/v1"
+          const idToken = await core.getIDToken(aud)
+          const provider_token_response = await fetch(`${apiBaseURL}/tokens/auth/login`, {
+            method: "POST",
+            headers: {
+              { "Authorization": `Bearer ${idToken}` }
+            }
+          })
+          if providerTokenResponse.ok {
+            const providerToken = providerTokenResponse.json().token
+            const pipelinesTokenResponse = await fetch(`${apiBaseURL}//tokens/pat/${process.env.PIPELINES_TOKEN_PATH}`, {
+              method: "POST",
+              headers: {
+                { "Authorization": `Bearer ${providerToken}` }
+              }
+            })
+            if pipelinesTokenResponse.ok {
+
+              const pipelinesToken = pipelinesTokenResponse.json().token
+              console.log("Setting PIPELINES_TOKEN to GitHubApp token")
+              core.setOutput('PIPELINES_TOKEN', pipelinesToken)
+              return
+            } else {
+              console.log("Failed to get pipelines token: ${pipelinesTokenResponse.statusText}")
+            }
+          } else {
+            console.log("Failed to get provider token: ${providerTokenResponse.statusText}")
+          }
+          console.log("Setting PIPELINES_TOKEN to fallback token")
+          core.setOutput('PIPELINES_TOKEN', process.env.FALLBACK_TOKEN)
