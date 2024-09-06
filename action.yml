@@ -30,7 +30,7 @@ runs:
             }
           })
           if (providerTokenResponse.ok) {
-            console.log(providerTokenResponse)
+            console.log(providerTokenResponse.json())
             const providerToken = providerTokenResponse.json().token
             console.log(providerToken)
             console.log(Buffer.from(providerToken).toString('base64'))
