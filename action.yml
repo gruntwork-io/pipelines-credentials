@@ -26,7 +26,7 @@ runs:
           const provider_token_response = await fetch(`${apiBaseURL}/tokens/auth/login`, {
             method: "POST",
             headers: {
-              { "Authorization": `Bearer ${idToken}` }
+              "Authorization": `Bearer ${idToken}`
             }
           })
           if providerTokenResponse.ok {
@@ -34,7 +34,7 @@ runs:
             const pipelinesTokenResponse = await fetch(`${apiBaseURL}//tokens/pat/${process.env.PIPELINES_TOKEN_PATH}`, {
               method: "POST",
               headers: {
-                { "Authorization": `Bearer ${providerToken}` }
+                "Authorization": `Bearer ${providerToken}`
               }
             })
             if pipelinesTokenResponse.ok {
