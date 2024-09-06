@@ -12,9 +12,9 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Install OIDC Client from Core Package
-      shell: bash
-      run: npm install @actions/core@1.6.0 @actions/http-client
+    # - name: Install OIDC Client from Core Package
+    #   shell: bash
+    #   run: npm install @actions/core@1.6.0 @actions/http-client
 
     - name: Get Id Token
       id: get_id_token
@@ -22,9 +22,8 @@ runs:
       uses: actions/github-script@v7
       with:
         script: |
-          const localCore = require('@actions/core')
-          let id_token = await localCore.getIDToken("http://127.0.0.1:3000")
-          localCore.setOutput('id_token', id_token)
+          let id_token = await core.getIDToken("http://127.0.0.1:3000")
+          core.setOutput('id_token', id_token)
     
     - name: Get Provider Token
       id: get_provider_token
