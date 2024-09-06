@@ -14,7 +14,6 @@ runs:
   steps:
     - name: Fetch Pipelines Token
       id: get_token
-      continue-on-error: true
       uses: actions/github-script@v7
       env:
         FALLBACK_TOKEN: ${{ inputs.FALLBACK_TOKEN }}
