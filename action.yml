@@ -20,33 +20,37 @@ runs:
         PIPELINES_TOKEN_PATH: ${{ inputs.PIPELINES_TOKEN_PATH }}
       with:
         script: |
-          const aud = "http://127.0.0.1:3000"
-          const apiBaseURL = "https://aperture-dev-git-pipelines-api-gruntwork.vercel.app/api/v1"
-          const idToken = await core.getIDToken(aud)
-          const providerTokenResponse = await fetch(`${apiBaseURL}/tokens/auth/login`, {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${idToken}`
-            }
-          })
-          if (providerTokenResponse.ok) {
-            const providerTokenJson = await providerTokenResponse.json()
-            const pipelinesTokenResponse = await fetch(`${apiBaseURL}/tokens/pat/${process.env.PIPELINES_TOKEN_PATH}`, {
-              method: "GET",
+          try {
+            const aud = "http://127.0.0.1:3000"
+            const apiBaseURL = "https://aperture-dev-git-pipelines-api-gruntwork.vercel.app/api/v1"
+            const idToken = await core.getIDToken(aud)
+            const providerTokenResponse = await fetch(`${apiBaseURL}/tokens/auth/login`, {
+              method: "POST",
               headers: {
-                "Authorization": `Bearer ${providerTokenJson.token}`
+                "Authorization": `Bearer ${idToken}`
               }
             })
-            if (pipelinesTokenResponse.ok) {
-              const pipelinesTokenJson = await pipelinesTokenResponse.json()
-              console.log("Setting PIPELINES_TOKEN to GitHubApp token")
-              core.setOutput('PIPELINES_TOKEN', pipelinesTokenJson.token)
-              return
+            if (providerTokenResponse.ok) {
+              const providerTokenJson = await providerTokenResponse.json()
+              const pipelinesTokenResponse = await fetch(`${apiBaseURL}/tokens/pat/${process.env.PIPELINES_TOKEN_PATH}`, {
+                method: "GET",
+                headers: {
+                  "Authorization": `Bearer ${providerTokenJson.token}`
+                }
+              })
+              if (pipelinesTokenResponse.ok) {
+                const pipelinesTokenJson = await pipelinesTokenResponse.json()
+                console.log("Setting PIPELINES_TOKEN to GitHubApp token")
+                core.setOutput('PIPELINES_TOKEN', pipelinesTokenJson.token)
+                return
+              } else {
+                console.log(`Failed to get pipelines token: ${pipelinesTokenResponse.status} ${pipelinesTokenResponse.statusText}`)
+              }
             } else {
-              console.log(`Failed to get pipelines token: ${pipelinesTokenResponse.status} ${pipelinesTokenResponse.statusText}`)
+              console.log(`Failed to get provider token: ${pipelinesTokenResponse.status} ${providerTokenResponse.statusText}`)
             }
-          } else {
-            console.log(`Failed to get provider token: ${pipelinesTokenResponse.status} ${providerTokenResponse.statusText}`)
+          } catch (error) {
+            console.log(`Failed to get pipelines token: ${error}`)
           }
           console.log("Setting PIPELINES_TOKEN to fallback token")
           core.setOutput('PIPELINES_TOKEN', process.env.FALLBACK_TOKEN)
