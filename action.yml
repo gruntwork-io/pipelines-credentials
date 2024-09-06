@@ -23,7 +23,7 @@ runs:
           const aud = "http://127.0.0.1:3000"
           const apiBaseURL = "https://aperture-dev-git-pipelines-api-gruntwork.vercel.app/api/v1"
           const idToken = await core.getIDToken(aud)
-          const provider_token_response = await fetch(`${apiBaseURL}/tokens/auth/login`, {
+          const providerTokenResponse = await fetch(`${apiBaseURL}/tokens/auth/login`, {
             method: "POST",
             headers: {
               "Authorization": `Bearer ${idToken}`
