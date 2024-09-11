@@ -6,7 +6,7 @@ inputs:
   FALLBACK_TOKEN:
     required: true
   api_base_url:
-    default: "https://api.app.gruntwork.io/api/v1"
+    default: "https://api.prod.app.gruntwork.io/api/v1"
 outputs:
   PIPELINES_TOKEN:
     value: ${{ steps.get_token.outputs.PIPELINES_TOKEN }}
@@ -24,7 +24,7 @@ runs:
       with:
         script: |
           try {
-            const aud = "https://api.app.gruntwork.io"
+            const aud = "https://api.prod.app.gruntwork.io"
             const apiBaseURL = process.env.API_BASE_URL
 
             const idToken = await core.getIDToken(aud)
