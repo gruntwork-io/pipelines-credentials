@@ -5,6 +5,8 @@ inputs:
     required: true
   FALLBACK_TOKEN:
     required: true
+  api_base_url:
+    default: "https://api.app.gruntwork.io/api/v1"
 outputs:
   PIPELINES_TOKEN:
     value: ${{ steps.get_token.outputs.PIPELINES_TOKEN }}
@@ -18,18 +20,22 @@ runs:
       env:
         FALLBACK_TOKEN: ${{ inputs.FALLBACK_TOKEN }}
         PIPELINES_TOKEN_PATH: ${{ inputs.PIPELINES_TOKEN_PATH }}
+        API_BASE_URL: ${{ inputs.api_base_url }}
       with:
         script: |
           try {
-            const aud = "http://127.0.0.1:3000"
-            const apiBaseURL = "https://aperture-dev-git-pipelines-api-gruntwork.vercel.app/api/v1"
+            const aud = "https://api.app.gruntwork.io"
+            const apiBaseURL = process.env.API_BASE_URL
+
             const idToken = await core.getIDToken(aud)
+
             const providerTokenResponse = await fetch(`${apiBaseURL}/tokens/auth/login`, {
               method: "POST",
               headers: {
                 "Authorization": `Bearer ${idToken}`
               }
             })
+
             if (providerTokenResponse.ok) {
               const providerTokenJson = await providerTokenResponse.json()
               const pipelinesTokenResponse = await fetch(`${apiBaseURL}/tokens/pat/${process.env.PIPELINES_TOKEN_PATH}`, {
@@ -38,19 +44,24 @@ runs:
                   "Authorization": `Bearer ${providerTokenJson.token}`
                 }
               })
+
               if (pipelinesTokenResponse.ok) {
                 const pipelinesTokenJson = await pipelinesTokenResponse.json()
                 console.log("Setting PIPELINES_TOKEN to GitHubApp token")
                 core.setOutput('PIPELINES_TOKEN', pipelinesTokenJson.token)
+
                 return
               } else {
                 console.log(`Failed to get pipelines token: ${pipelinesTokenResponse.status} ${pipelinesTokenResponse.statusText}`)
               }
+
             } else {
               console.log(`Failed to get provider token: ${pipelinesTokenResponse.status} ${providerTokenResponse.statusText}`)
             }
+
           } catch (error) {
             console.log(`Failed to get pipelines token: ${error}`)
           }
+
           console.log("Setting PIPELINES_TOKEN to fallback token")
           core.setOutput('PIPELINES_TOKEN', process.env.FALLBACK_TOKEN)
