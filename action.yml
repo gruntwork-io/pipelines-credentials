@@ -56,7 +56,7 @@ runs:
               }
 
             } else {
-              console.log(`Failed to get provider token: ${pipelinesTokenResponse.status} ${providerTokenResponse.statusText}`)
+              console.log(`Failed to get provider token: ${providerTokenResponse.status} ${providerTokenResponse.statusText}`)
             }
 
           } catch (error) {
