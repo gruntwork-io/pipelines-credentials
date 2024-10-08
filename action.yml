@@ -66,7 +66,7 @@ runs:
           console.log("Setting PIPELINES_TOKEN to fallback token")
 
           if (! process.env.FALLBACK_TOKEN) {
-            const errMsg = "The pipelines-credentials GitHub Action was unable to dynamically fetch credentials using the Grunty GitHub App, and no FALLBACK_TOKEN was provided. Ensure that the Grunty app is installed, or that a FALLBACK_TOKEN is provided."
+            const errMsg = "The pipelines-credentials GitHub Action was unable to dynamically fetch credentials using the Gruntwork.io GitHub App, and no FALLBACK_TOKEN was provided. Ensure that the Gruntwork.io app is installed, or that a FALLBACK_TOKEN is provided."
 
             core.setFailed(errMsg)
 
