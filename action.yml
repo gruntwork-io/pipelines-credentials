@@ -57,7 +57,7 @@ runs:
               }
             }
 
-            const providerTokenResponse = await fetchTokenWithRetries(3)
+            const providerTokenResponse = await loginWithRetries(3)
 
             if (providerTokenResponse.ok) {
               const providerTokenJson = await providerTokenResponse.json()
