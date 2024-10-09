@@ -47,7 +47,7 @@ runs:
                 if (tries > 0 && isRetryableError(providerTokenResponse)) {
                   console.log(`Failed to get provider token: ${providerTokenResponse.status} ${providerTokenResponse.statusText}. Retrying...`)
 
-                  # Random backoff between 0 and 3 seconds
+                  // Random backoff between 0 and 3 seconds
                   await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * 3000)))
 
                   return loginWithRetries(tries - 1)
