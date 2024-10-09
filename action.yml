@@ -52,7 +52,7 @@ runs:
 
                   return loginWithRetries(tries - 1)
                 } else {
-                  throw new Error(`Failed to get provider token: ${providerTokenResponse.status} ${providerTokenResponse.statusText}`)
+                  return providerTokenResponse
                 }
               }
             }
