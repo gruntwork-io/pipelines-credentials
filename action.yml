@@ -57,10 +57,28 @@ runs:
               }
             }
 
+            async function logRateLimitInfo(token) {
+              return fetch("https://api.github.com/rate_limit", {
+                method: "GET",
+                headers: {
+                  Authorization: `token ${token}`
+                }
+              })
+                .then(async response => {
+                  const rateLimitRemaining = response.headers.get("x-ratelimit-remaining");
+                  console.log(
+                    `Rate limit remaining: ${rateLimitRemaining}, ${process.env.PIPELINES_TOKEN_PATH}`
+                  );
+                  const coreRateLimitInfo = (await response.json()).resources.core;
+
+                  console.log("Core rate limit info: %o", coreRateLimitInfo);
+                })
+                .catch(e => console.log("Error fetching rate limit info: %o", e));
+
             const providerTokenResponse = await loginWithRetries(3)
 
+            const providerTokenJson = await providerTokenResponse.json()
             if (providerTokenResponse.ok) {
-              const providerTokenJson = await providerTokenResponse.json()
               const pipelinesTokenResponse = await fetch(`${apiBaseURL}/tokens/pat/${process.env.PIPELINES_TOKEN_PATH}`, {
                 method: "GET",
                 headers: {
@@ -68,18 +86,21 @@ runs:
                 }
               })
 
+              const pipelinesTokenJson = await pipelinesTokenResponse.json()
               if (pipelinesTokenResponse.ok) {
-                const pipelinesTokenJson = await pipelinesTokenResponse.json()
                 console.log("Setting PIPELINES_TOKEN to GitHubApp token")
                 core.setOutput('PIPELINES_TOKEN', pipelinesTokenJson.token)
 
-                return
+                // TEMP: log rate limit info
+                await logRateLimitInfo(pipelinesTokenJson.token);
+
+                return;
               } else {
-                console.log(`Failed to get pipelines token: ${pipelinesTokenResponse.status} ${pipelinesTokenResponse.statusText}`)
+                console.log(`Failed to get pipelines token: ${pipelinesTokenResponse.status} ${pipelinesTokenResponse.statusText} ${pipelinesTokenJson}`)
               }
 
             } else {
-              console.log(`Failed to get provider token: ${providerTokenResponse.status} ${providerTokenResponse.statusText}`)
+              console.log(`Failed to get provider token: ${providerTokenResponse.status} ${providerTokenResponse.statusText} ${providerTokenJson}`)
             }
 
           } catch (error) {
@@ -97,4 +118,3 @@ runs:
           }
 
           core.setOutput('PIPELINES_TOKEN', process.env.FALLBACK_TOKEN)
-
