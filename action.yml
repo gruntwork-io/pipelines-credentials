@@ -74,6 +74,7 @@ runs:
                   console.log("Core rate limit info: %o", coreRateLimitInfo);
                 })
                 .catch(e => console.log("Error fetching rate limit info: %o", e));
+              }
 
             const providerTokenResponse = await loginWithRetries(3)
 
