@@ -96,5 +96,5 @@ runs:
             throw new Error(errMsg)
           }
 
-          core.setOutput('PIPELINES_TOKEN', process.env.FALLBACK_TOKEN)
+          core.setOutput('PIPELINES_TOKEN', process.env.FALLBACK_TOKEN.trim())
 
