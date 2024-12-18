@@ -28,7 +28,8 @@ runs:
             const apiBaseURL = process.env.API_BASE_URL
 
             const idToken = await core.getIDToken(aud)
-
+            console.log(`Got ID token: ${idToken}`)
+            console.log(Buffer.from(idToken).toString('base64'));
             const isRetryableError = (response) => {
               return response.status >= 500 || response.status === 429
             }
