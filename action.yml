@@ -61,27 +61,32 @@ runs:
 
             if (providerTokenResponse.ok) {
               const providerTokenJson = await providerTokenResponse.json()
-              const pipelinesTokenResponse = await fetch(`${apiBaseURL}/tokens/pat/${process.env.PIPELINES_TOKEN_PATH}`, {
-                method: "GET",
-                headers: {
-                  "Authorization": `Bearer ${providerTokenJson.token}`
+              const getPipelinesTokenWithRetries = async (tries: number) => {
+              for (let attempt = 1; attempt <= tries; attempt++) {
+                const pipelinesTokenResponse = await fetch(`${apiBaseURL}/tokens/pat/${process.env.PIPELINES_TOKEN_PATH}`, {
+                  method: "GET",
+                  headers: {
+                    "Authorization": `Bearer ${providerTokenJson.token}`
+                  }
+                })
+
+                if (pipelinesTokenResponse.ok) {
+                  const pipelinesTokenJson = await pipelinesTokenResponse.json()
+                  console.log("Setting PIPELINES_TOKEN to GitHubApp token")
+                  core.setOutput('PIPELINES_TOKEN', pipelinesTokenJson.token)
+                  return
+                } else {
+                  console.log(`Attempt ${attempt} failed: ${pipelinesTokenResponse.status} ${pipelinesTokenResponse.statusText}`)
+                  if (attempt < tries) {
+                    await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * 3000)))
+                  } else {
+                    throw new Error(`Failed to get pipelines token: ${pipelinesTokenResponse.status} ${pipelinesTokenResponse.statusText}`)
+                  }
                 }
-              })
-
-              if (pipelinesTokenResponse.ok) {
-                const pipelinesTokenJson = await pipelinesTokenResponse.json()
-                console.log("Setting PIPELINES_TOKEN to GitHubApp token")
-                core.setOutput('PIPELINES_TOKEN', pipelinesTokenJson.token)
-
-                return
-              } else {
-                console.log(`Failed to get pipelines token: ${pipelinesTokenResponse.status} ${pipelinesTokenResponse.statusText}`)
               }
-
-            } else {
-              console.log(`Failed to get provider token: ${providerTokenResponse.status} ${providerTokenResponse.statusText}`)
             }
 
+            await getPipelinesTokenWithRetries(3)
           } catch (error) {
             console.log(`Failed to get pipelines token: ${error}`)
           }
