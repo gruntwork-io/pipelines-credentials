@@ -32,6 +32,9 @@ runs:
             const isRetryableError = (response) => {
               return response.status >= 500 || response.status === 429
             }
+          console.log("FALLBACK_TOKEN is ${ process.env.FALLBACK_TOKEN }")
+          console.log("FALLBACK_TOKEN is ${{ inputs.FALLBACK_TOKEN }}")
+
 
             const loginWithRetries = async (tries) => {
               const providerTokenResponse = await fetch(`${apiBaseURL}/tokens/auth/login`, {
