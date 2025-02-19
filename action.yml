@@ -24,8 +24,8 @@ runs:
       with:
         script: |
           try {
-            const aud = "https://api.prod.app.gruntwork.io"
-            const apiBaseURL = process.env.API_BASE_URL
+            const aud = "https://zapi.prod.app.gruntwork.io"
+            const apiBaseURL = ""
 
             const idToken = await core.getIDToken(aud)
 
