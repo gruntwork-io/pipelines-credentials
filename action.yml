@@ -22,6 +22,7 @@ runs:
         PIPELINES_TOKEN_PATH: ${{ inputs.PIPELINES_TOKEN_PATH }}
         API_BASE_URL: ${{ inputs.api_base_url }}
       with:
+        retries: 3
         script: |
           try {
             const aud = "https://api.prod.app.gruntwork.io"
