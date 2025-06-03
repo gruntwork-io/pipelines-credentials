@@ -1,100 +1,180 @@
 name: Pipelines Credentials
 description: Fetch Pipelines Credentials
 inputs:
-  PIPELINES_TOKEN_PATH:
+  PIPELINES_TOKEN_PATHS:
     required: true
-  FALLBACK_TOKEN:
-    required: true
+    description: 'JSON array of token path objects with "name", "path", and "fallback_secret" fields'
   api_base_url:
     default: "https://api.prod.app.gruntwork.io/api/v1"
 outputs:
-  PIPELINES_TOKEN:
-    value: ${{ steps.get_token.outputs.PIPELINES_TOKEN }}
+  PIPELINES_TOKENS:
+    value: ${{ steps.get_tokens.outputs.PIPELINES_TOKENS }}
 
 runs:
   using: composite
   steps:
-    - name: Fetch Pipelines Token
-      id: get_token
+    - name: Fetch Pipelines Tokens
+      id: get_tokens
       uses: actions/github-script@v7
       env:
-        FALLBACK_TOKEN: ${{ inputs.FALLBACK_TOKEN }}
-        PIPELINES_TOKEN_PATH: ${{ inputs.PIPELINES_TOKEN_PATH }}
+        PIPELINES_TOKEN_PATHS: ${{ inputs.PIPELINES_TOKEN_PATHS }}
         API_BASE_URL: ${{ inputs.api_base_url }}
       with:
         script: |
           try {
             const aud = "https://api.prod.app.gruntwork.io"
             const apiBaseURL = process.env.API_BASE_URL
+            const tokenRequests = JSON.parse(process.env.PIPELINES_TOKEN_PATHS)
 
             const idToken = await core.getIDToken(aud)
 
-            const isRetryableError = (response) => {
-              return response.status >= 500 || response.status === 429
+            const isRetryableError = (error, response = null) => {
+              // Retry on network errors (TypeError from fetch)
+              if (error instanceof TypeError) {
+                return true
+              }
+              // Retry on server errors or rate limiting
+              if (response && (response.status >= 500 || response.status === 429)) {
+                return true
+              }
+              return false
             }
 
             const loginWithRetries = async (tries) => {
-              const providerTokenResponse = await fetch(`${apiBaseURL}/tokens/auth/login`, {
-                method: "POST",
-                headers: {
-                  "Authorization": `Bearer ${idToken}`
-                }
-              })
+              try {
+                const providerTokenResponse = await fetch(`${apiBaseURL}/tokens/auth/login`, {
+                  method: "POST",
+                  headers: {
+                    "Authorization": `Bearer ${idToken}`
+                  }
+                })
 
-              if (providerTokenResponse.ok) {
-                return providerTokenResponse
-              } else {
-                if (tries > 0 && isRetryableError(providerTokenResponse)) {
-                  console.log(`Failed to get provider token: ${providerTokenResponse.status} ${providerTokenResponse.statusText}. Retrying...`)
+                if (providerTokenResponse.ok) {
+                  return providerTokenResponse
+                } else {
+                  if (tries > 0 && isRetryableError(null, providerTokenResponse)) {
+                    console.log(`Failed to get provider token: ${providerTokenResponse.status} ${providerTokenResponse.statusText}. Retrying...`)
+
+                    // Random backoff between 0 and 3 seconds
+                    await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * 3000)))
+
+                    return loginWithRetries(tries - 1)
+                  } else {
+                    return providerTokenResponse
+                  }
+                }
+              } catch (error) {
+                if (tries > 0 && isRetryableError(error)) {
+                  console.log(`Network error getting provider token: ${error.message}. Retrying...`)
 
                   // Random backoff between 0 and 3 seconds
                   await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * 3000)))
 
                   return loginWithRetries(tries - 1)
                 } else {
-                  return providerTokenResponse
+                  throw error
                 }
               }
             }
 
             const providerTokenResponse = await loginWithRetries(3)
+            let providerToken = null
 
             if (providerTokenResponse.ok) {
               const providerTokenJson = await providerTokenResponse.json()
-              const pipelinesTokenResponse = await fetch(`${apiBaseURL}/tokens/pat/${process.env.PIPELINES_TOKEN_PATH}`, {
-                method: "GET",
-                headers: {
-                  "Authorization": `Bearer ${providerTokenJson.token}`
-                }
-              })
-
-              if (pipelinesTokenResponse.ok) {
-                const pipelinesTokenJson = await pipelinesTokenResponse.json()
-                console.log("Setting PIPELINES_TOKEN to GitHubApp token")
-                core.setOutput('PIPELINES_TOKEN', pipelinesTokenJson.token)
-
-                return
-              } else {
-                console.log(`Failed to get pipelines token: ${pipelinesTokenResponse.status} ${pipelinesTokenResponse.statusText}`)
-              }
-
+              providerToken = providerTokenJson.token
+              console.log("Successfully obtained provider token")
             } else {
               console.log(`Failed to get provider token: ${providerTokenResponse.status} ${providerTokenResponse.statusText}`)
             }
 
+            // Fetch all tokens in parallel
+            const fetchToken = async (tokenRequest) => {
+              const { name, path, fallback_secret } = tokenRequest
+
+              const fetchTokenWithRetries = async (tries) => {
+                try {
+                  const pipelinesTokenResponse = await fetch(`${apiBaseURL}/tokens/pat/${path}`, {
+                    method: "GET",
+                    headers: {
+                      "Authorization": `Bearer ${providerToken}`
+                    }
+                  })
+
+                  if (pipelinesTokenResponse.ok) {
+                    const pipelinesTokenJson = await pipelinesTokenResponse.json()
+                    console.log(`Setting ${name} to GitHubApp token`)
+                    return {
+                      name,
+                      token: pipelinesTokenJson.token,
+                      source: 'github_app'
+                    }
+                  } else {
+                    if (tries > 0 && isRetryableError(null, pipelinesTokenResponse)) {
+                      console.log(`Failed to get ${name} token: ${pipelinesTokenResponse.status} ${pipelinesTokenResponse.statusText}. Retrying...`)
+
+                      // Random backoff between 0 and 3 seconds
+                      await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * 3000)))
+
+                      return fetchTokenWithRetries(tries - 1)
+                    } else {
+                      console.log(`Failed to get ${name} token: ${pipelinesTokenResponse.status} ${pipelinesTokenResponse.statusText}`)
+                      return null
+                    }
+                  }
+                } catch (error) {
+                  if (tries > 0 && isRetryableError(error)) {
+                    console.log(`Network error getting ${name} token: ${error.message}. Retrying...`)
+
+                    // Random backoff between 0 and 3 seconds
+                    await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * 3000)))
+
+                    return fetchTokenWithRetries(tries - 1)
+                  } else {
+                    console.log(`Failed to get ${name} token: ${error}`)
+                    return null
+                  }
+                }
+              }
+
+              if (providerToken) {
+                const result = await fetchTokenWithRetries(3)
+                if (result) {
+                  return result
+                }
+              }
+
+              // Fall back to the provided fallback token
+              console.log(`Setting ${name} to fallback token`)
+
+              if (!fallback_secret) {
+                const errMsg = `The pipelines-credentials GitHub Action was unable to dynamically fetch credentials for ${name} using the Gruntwork.io GitHub App, and no fallback token was provided. Ensure that the Gruntwork.io app is installed, or that a fallback token is provided for ${name}.`
+                core.setFailed(errMsg)
+                throw new Error(errMsg)
+              }
+
+              return {
+                name,
+                token: fallback_secret.trim(),
+                source: 'fallback'
+              }
+            }
+
+            // Fetch all tokens in parallel
+            const tokenResults = await Promise.all(tokenRequests.map(fetchToken))
+
+            // Convert to object with token names as keys
+            const tokensOutput = {}
+            tokenResults.forEach(result => {
+              tokensOutput[result.name] = result.token
+            })
+
+            core.setOutput('PIPELINES_TOKENS', JSON.stringify(tokensOutput))
+            console.log(`Successfully fetched ${tokenResults.length} tokens: ${tokenResults.map(r => `${r.name} (${r.source})`).join(', ')}`)
+
           } catch (error) {
-            console.log(`Failed to get pipelines token: ${error}`)
+            console.log(`Failed to get pipelines tokens: ${error}`)
+            core.setFailed(error.message)
+            throw error
           }
-
-          console.log("Setting PIPELINES_TOKEN to fallback token")
-
-          if (! process.env.FALLBACK_TOKEN) {
-            const errMsg = "The pipelines-credentials GitHub Action was unable to dynamically fetch credentials using the Gruntwork.io GitHub App, and no FALLBACK_TOKEN was provided. Ensure that the Gruntwork.io app is installed, or that a FALLBACK_TOKEN is provided."
-
-            core.setFailed(errMsg)
-
-            throw new Error(errMsg)
-          }
-
-          core.setOutput('PIPELINES_TOKEN', process.env.FALLBACK_TOKEN.trim())
 
