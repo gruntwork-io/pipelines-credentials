@@ -30,7 +30,9 @@ runs:
             const idToken = await core.getIDToken(aud)
 
             const isRetryableError = (response) => {
-              return response.status >= 500 || response.status === 429
+              return true;
+              // 10/1/2025 - we're going to retry everything to see if it works around some epehemeral 403s customers are seeing
+              // return response.status >= 500 || response.status === 429
             }
 
             const loginWithRetries = async (tries) => {
