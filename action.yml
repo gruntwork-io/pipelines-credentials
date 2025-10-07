@@ -29,44 +29,50 @@ runs:
 
             const idToken = await core.getIDToken(aud)
 
-            const isRetryableError = (response) => {
-              return response.status >= 500 || response.status === 429
-            }
+            const fetchWithRetries = async (fetchFn, name, tries) => {
+              try {
+                const response = await fetchFn()
 
-            const loginWithRetries = async (tries) => {
-              const providerTokenResponse = await fetch(`${apiBaseURL}/tokens/auth/login`, {
-                method: "POST",
-                headers: {
-                  "Authorization": `Bearer ${idToken}`
+                if (response.ok || tries === 0) {
+                  return response
                 }
-              })
 
-              if (providerTokenResponse.ok) {
-                return providerTokenResponse
-              } else {
-                if (tries > 0 && isRetryableError(providerTokenResponse)) {
-                  console.log(`Failed to get provider token: ${providerTokenResponse.status} ${providerTokenResponse.statusText}. Retrying...`)
-
-                  // Random backoff between 0 and 3 seconds
+                if (response.status >= 500 || response.status === 429) {
+                  console.log(`Failed to get ${name}: ${response.status} ${response.statusText}. Retrying...`)
                   await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * 3000)))
-
-                  return loginWithRetries(tries - 1)
-                } else {
-                  return providerTokenResponse
+                  return fetchWithRetries(fetchFn, name, tries - 1)
                 }
+
+                return response
+              } catch (error) {
+                if (tries > 0 && (error.name === 'TypeError' || error.message.includes('fetch failed'))) {
+                  console.log(`Failed to get ${name}: ${error}. Retrying...`)
+                  await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * 3000)))
+                  return fetchWithRetries(fetchFn, name, tries - 1)
+                }
+                throw error
               }
             }
 
-            const providerTokenResponse = await loginWithRetries(3)
+            const providerTokenResponse = await fetchWithRetries(
+              () => fetch(`${apiBaseURL}/tokens/auth/login`, {
+                method: "POST",
+                headers: { "Authorization": `Bearer ${idToken}` }
+              }),
+              "provider token",
+              3
+            )
 
             if (providerTokenResponse.ok) {
               const providerTokenJson = await providerTokenResponse.json()
-              const pipelinesTokenResponse = await fetch(`${apiBaseURL}/tokens/pat/${process.env.PIPELINES_TOKEN_PATH}`, {
-                method: "GET",
-                headers: {
-                  "Authorization": `Bearer ${providerTokenJson.token}`
-                }
-              })
+              const pipelinesTokenResponse = await fetchWithRetries(
+                () => fetch(`${apiBaseURL}/tokens/pat/${process.env.PIPELINES_TOKEN_PATH}`, {
+                  method: "GET",
+                  headers: { "Authorization": `Bearer ${providerTokenJson.token}` }
+                }),
+                "pipelines token",
+                3
+              )
 
               if (pipelinesTokenResponse.ok) {
                 const pipelinesTokenJson = await pipelinesTokenResponse.json()
