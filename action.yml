@@ -38,14 +38,31 @@ runs:
             return false
           }
 
-          const withRetry = async (fn, retries = 3) => {
+          const formatError = (error) => {
+            let msg = `${error.name}: ${error.message}`
+            if (error.cause) {
+              msg += `\n  Cause: ${error.cause}`
+              if (error.cause.code) msg += ` (code: ${error.cause.code})`
+              if (error.cause.syscall) msg += ` (syscall: ${error.cause.syscall})`
+              if (error.cause.hostname) msg += ` (host: ${error.cause.hostname})`
+            }
+            if (error.code) msg += `\n  Code: ${error.code}`
+            return msg
+          }
+
+          const withRetry = async (fn, stepName, retries = 5) => {
             for (let i = 1; i <= retries; i++) {
               try {
                 return await fn()
               } catch (error) {
-                console.log(`Attempt ${i}/${retries} failed: ${error}`)
-                if (i < retries && isRetryableError(error)) {
-                  await sleep(1000 * i + Math.random() * 2000)
+                const isRetryable = isRetryableError(error)
+                console.log(`[${stepName}] Attempt ${i}/${retries} failed (retryable: ${isRetryable})`)
+                console.log(`  ${formatError(error)}`)
+                if (i < retries && isRetryable) {
+                  // Exponential backoff: 2^i seconds (2s, 4s, 8s, 16s) + jitter
+                  const backoff = Math.pow(2, i) * 1000 + Math.random() * 1000
+                  console.log(`  Retrying in ${Math.round(backoff / 1000)}s...`)
+                  await sleep(backoff)
                 } else {
                   throw error
                 }
@@ -56,8 +73,9 @@ runs:
           try {
             const apiBaseURL = process.env.API_BASE_URL
 
-            const idToken = await withRetry(() =>
-              core.getIDToken("https://api.prod.app.gruntwork.io")
+            const idToken = await withRetry(
+              () => core.getIDToken("https://api.prod.app.gruntwork.io"),
+              "getIDToken"
             )
 
             const providerToken = await withRetry(async () => {
@@ -65,23 +83,24 @@ runs:
                 method: "POST",
                 headers: { "Authorization": `Bearer ${idToken}` }
               })
-              if (!res.ok) throw new Error(`Login failed: ${res.status}`)
+              if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`)
               return (await res.json()).token
-            })
+            }, "login")
 
             const token = await withRetry(async () => {
               const res = await fetch(`${apiBaseURL}/tokens/pat/${process.env.PIPELINES_TOKEN_PATH}`, {
                 headers: { "Authorization": `Bearer ${providerToken}` }
               })
-              if (!res.ok) throw new Error(`Token fetch failed: ${res.status}`)
+              if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`)
               return (await res.json()).token
-            })
+            }, "fetchToken")
 
             console.log("Setting PIPELINES_TOKEN to GitHubApp token")
             core.setOutput('PIPELINES_TOKEN', token)
             return
           } catch (error) {
-            console.log(`Failed to get pipelines token: ${error}`)
+            console.log(`Failed to get pipelines token after all retries:`)
+            console.log(`  ${formatError(error)}`)
           }
 
           if (!process.env.FALLBACK_TOKEN) {
