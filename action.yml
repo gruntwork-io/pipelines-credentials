@@ -16,7 +16,7 @@ runs:
   steps:
     - name: Fetch Pipelines Token
       id: get_token
-      uses: actions/github-script@v7
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
       env:
         FALLBACK_TOKEN: ${{ inputs.FALLBACK_TOKEN }}
         PIPELINES_TOKEN_PATH: ${{ inputs.PIPELINES_TOKEN_PATH }}
