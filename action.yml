@@ -26,11 +26,10 @@ runs:
           const sleep = (ms) => new Promise(r => setTimeout(r, ms))
 
           const isRetryableError = (error) => {
-            const msg = String(error)
-            // Network errors
-            if (/TypeError|ECONN|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket disconnected|TLS/.test(msg)) return true
+            // Network / transient errors
+            if (/TypeError|ECONN|EPIPE|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|ECONNABORTED|socket disconnected|Request timeout|AbortError|TimeoutError|TLS/.test(msg)) return true
             // HTTP 5xx or 429 (rate limit)
-            const statusMatch = msg.match(/: (\d{3})$/)
+            const statusMatch = msg.match(/HTTP (\d{3})/) || msg.match(/: (\d{3})$/)
             if (statusMatch) {
               const status = parseInt(statusMatch[1])
               return status >= 500 || status === 429
