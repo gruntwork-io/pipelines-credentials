@@ -1,0 +1,13 @@
+{
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "jest"
+  },
+  "devDependencies": {
+    "jest": "29.7.0",
+    "js-yaml": "4.1.1"
+  }
+}
