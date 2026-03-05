@@ -56,8 +56,8 @@ function createGithubMock(existingComments = []) {
     rest: {
       issues: {
         listComments: jest.fn().mockResolvedValue({ data: existingComments }),
-        createComment: jest.fn().mockResolvedValue({}),
-        updateComment: jest.fn().mockResolvedValue({}),
+        createComment: jest.fn().mockResolvedValue({ data: { html_url: 'https://github.com/test-owner/test-repo/issues/1#issuecomment-new' } }),
+        updateComment: jest.fn().mockResolvedValue({ data: { html_url: 'https://github.com/test-owner/test-repo/issues/1#issuecomment-updated' } }),
       },
     },
   };
@@ -188,7 +188,7 @@ describe('pipelines-credentials action', () => {
         owner: 'test-owner',
         repo: 'test-repo',
         issue_number: 42,
-        body: expect.stringContaining('Your Pipelines have been paused'),
+        body: expect.stringContaining('Your Gruntwork Pipelines have been paused'),
       });
       expect(githubMock.rest.issues.updateComment).not.toHaveBeenCalled();
       expect(core.setOutput).toHaveBeenCalledWith('PIPELINES_TOKEN', 'fallback-pat');
@@ -213,7 +213,7 @@ describe('pipelines-credentials action', () => {
         owner: 'test-owner',
         repo: 'test-repo',
         comment_id: 999,
-        body: expect.stringContaining('Your Pipelines have been paused'),
+        body: expect.stringContaining('Your Gruntwork Pipelines have been paused'),
       });
       expect(githubMock.rest.issues.createComment).not.toHaveBeenCalled();
     });
