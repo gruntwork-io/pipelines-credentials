@@ -41,3 +41,4 @@ e.g.
 Will result in the workflow being able to access a token at `${{ steps.pipelines-gruntwork-read-token.outputs.PIPELINES_TOKEN }}` that can be used to read relevant resources in the `gruntwork-io` organization, scoped to the ability to clone select repositories and fetch the [pipelines-cli](https://github.com/gruntwork-io/pipelines-cli) binary.
 
 
+
