@@ -7,6 +7,7 @@ function createCoreMock() {
     setFailed: jest.fn(),
     summary: {
       addHeading: jest.fn().mockReturnThis(),
+      addEOL: jest.fn().mockReturnThis(),
       addRaw: jest.fn().mockReturnThis(),
       write: jest.fn().mockResolvedValue(undefined),
     },
@@ -50,11 +51,13 @@ const DEFAULT_ENV = {
 const LOGIN_URL = 'https://api.example.com/api/v1/tokens/auth/login';
 const TOKEN_URL = 'https://api.example.com/api/v1/tokens/pat/org/repo';
 
-function createGithubMock() {
+function createGithubMock(existingComments = []) {
   return {
     rest: {
       issues: {
+        listComments: jest.fn().mockResolvedValue({ data: existingComments }),
         createComment: jest.fn().mockResolvedValue({}),
+        updateComment: jest.fn().mockResolvedValue({}),
       },
     },
   };
@@ -167,7 +170,7 @@ describe('pipelines-credentials action', () => {
       expect(core.setOutput).toHaveBeenCalledWith('PIPELINES_TOKEN', 'fallback-pat');
     });
 
-    test('posts PR comment when in PR context', async () => {
+    test('creates PR comment when no existing comment', async () => {
       const core = createCoreMock();
       const fetch = createFetchMock([limitExceededResponse(100, 120)]);
       const githubMock = createGithubMock();
@@ -187,7 +190,32 @@ describe('pipelines-credentials action', () => {
         issue_number: 42,
         body: expect.stringContaining('Your Pipelines have been paused'),
       });
+      expect(githubMock.rest.issues.updateComment).not.toHaveBeenCalled();
       expect(core.setOutput).toHaveBeenCalledWith('PIPELINES_TOKEN', 'fallback-pat');
+    });
+
+    test('updates existing PR comment instead of creating a new one', async () => {
+      const core = createCoreMock();
+      const fetch = createFetchMock([limitExceededResponse(100, 120)]);
+      const existingComment = { id: 999, body: '<!-- pipelines-limit-exceeded -->\n## old content' };
+      const githubMock = createGithubMock([existingComment]);
+      const contextMock = createContextMock(42);
+
+      await runAction({
+        coreMock: core,
+        fetchMock: fetch,
+        env: DEFAULT_ENV,
+        githubMock,
+        contextMock,
+      });
+
+      expect(githubMock.rest.issues.updateComment).toHaveBeenCalledWith({
+        owner: 'test-owner',
+        repo: 'test-repo',
+        comment_id: 999,
+        body: expect.stringContaining('Your Pipelines have been paused'),
+      });
+      expect(githubMock.rest.issues.createComment).not.toHaveBeenCalled();
     });
 
     test('does NOT write summary or comment for a normal 403', async () => {
@@ -213,7 +241,7 @@ describe('pipelines-credentials action', () => {
       const core = createCoreMock();
       const fetch = createFetchMock([limitExceededResponse(100, 120)]);
       const githubMock = createGithubMock();
-      githubMock.rest.issues.createComment.mockRejectedValue(new Error('Resource not accessible by integration'));
+      githubMock.rest.issues.listComments.mockRejectedValue(new Error('Resource not accessible by integration'));
       const contextMock = createContextMock(42);
 
       await runAction({

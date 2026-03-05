@@ -77,18 +77,23 @@ runs:
 
             await core.summary
               .addHeading('Your Pipelines have been paused')
+              .addEOL()
               .addRaw(message)
-              .write()
+              .write({ overwrite: true })
 
             if (context.payload.pull_request) {
               try {
+                const marker = '<!-- pipelines-limit-exceeded -->'
+                const commentBody = `${marker}\n## Your Pipelines have been paused\n\n${message}`
                 const { owner, repo } = context.repo
-                await github.rest.issues.createComment({
-                  owner,
-                  repo,
-                  issue_number: context.payload.pull_request.number,
-                  body: `## Your Pipelines have been paused\n\n${message}`,
-                })
+                const issue_number = context.payload.pull_request.number
+                const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number })
+                const existing = comments.find(c => c.body.startsWith(marker))
+                if (existing) {
+                  await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body: commentBody })
+                } else {
+                  await github.rest.issues.createComment({ owner, repo, issue_number, body: commentBody })
+                }
               } catch (e) {
                 console.log(`Failed to post PR comment: ${e.message}`)
               }
