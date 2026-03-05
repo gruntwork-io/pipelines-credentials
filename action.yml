@@ -84,7 +84,7 @@ runs:
             if (context.payload.pull_request) {
               try {
                 const marker = '<!-- pipelines-limit-exceeded -->'
-                const commentBody = `${marker}\n## Your Pipelines have been paused\n\n${message}`
+                const commentBody = `${marker}\n## Your Gruntwork Pipelines have been paused\n\n${message}`
                 const { owner, repo } = context.repo
                 const issue_number = context.payload.pull_request.number
                 const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number })
