@@ -26,6 +26,7 @@ runs:
           const sleep = (ms) => new Promise(r => setTimeout(r, ms))
 
           const isRetryableError = (error) => {
+            const msg = String(error)
             // Network / transient errors
             if (/TypeError|ECONN|EPIPE|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|ECONNABORTED|socket disconnected|Request timeout|AbortError|TimeoutError|TLS/.test(msg)) return true
             // HTTP 5xx or 429 (rate limit)
