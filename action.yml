@@ -70,6 +70,31 @@ runs:
             }
           }
 
+          const handleLimitExceeded = async (body) => {
+            const limit = body?.detail?.limits?.[0]?.limit
+            const limitText = limit ? ` of **${limit}** infrastructure units` : ''
+            const message = `You've exceeded your plan's usage limit${limitText}. To continue using Pipelines, contact sales to upgrade your plan or request a one-time restoration of service during which you may reduce your usage.`
+
+            await core.summary
+              .addHeading('Your Pipelines have been paused')
+              .addRaw(message)
+              .write()
+
+            if (context.payload.pull_request) {
+              try {
+                const { owner, repo } = context.repo
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: context.payload.pull_request.number,
+                  body: `## Your Pipelines have been paused\n\n${message}`,
+                })
+              } catch (e) {
+                console.log(`Failed to post PR comment: ${e.message}`)
+              }
+            }
+          }
+
           try {
             const apiBaseURL = process.env.API_BASE_URL
 
@@ -83,7 +108,17 @@ runs:
                 method: "POST",
                 headers: { "Authorization": `Bearer ${idToken}` }
               })
-              if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`)
+              if (!res.ok) {
+                if (res.status === 403) {
+                  try {
+                    const body = await res.json()
+                    if (body.error === "LIMIT_EXCEEDED") {
+                      await handleLimitExceeded(body)
+                    }
+                  } catch (_) {}
+                }
+                throw new Error(`HTTP ${res.status}: ${res.statusText}`)
+              }
               return (await res.json()).token
             }, "login")
 
