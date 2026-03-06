@@ -5,6 +5,12 @@ function createCoreMock() {
     getIDToken: jest.fn().mockResolvedValue('mock-id-token'),
     setOutput: jest.fn(),
     setFailed: jest.fn(),
+    summary: {
+      addHeading: jest.fn().mockReturnThis(),
+      addEOL: jest.fn().mockReturnThis(),
+      addRaw: jest.fn().mockReturnThis(),
+      write: jest.fn().mockResolvedValue(undefined),
+    },
   };
 }
 
@@ -12,8 +18,8 @@ function okResponse(token) {
   return { ok: true, status: 200, statusText: 'OK', body: { token } };
 }
 
-function errorResponse(status, statusText) {
-  return { ok: false, status, statusText };
+function errorResponse(status, statusText, body) {
+  return { ok: false, status, statusText, body };
 }
 
 function createFetchMock(responses) {
@@ -28,7 +34,10 @@ function createFetchMock(responses) {
       ok: resp.ok,
       status: resp.status,
       statusText: resp.statusText,
-      json: async () => resp.body,
+      json: async () => {
+        if (resp.body === undefined) throw new SyntaxError('Unexpected end of JSON input');
+        return resp.body;
+      },
     };
   });
 }
@@ -41,6 +50,36 @@ const DEFAULT_ENV = {
 
 const LOGIN_URL = 'https://api.example.com/api/v1/tokens/auth/login';
 const TOKEN_URL = 'https://api.example.com/api/v1/tokens/pat/org/repo';
+
+function createGithubMock(existingComments = []) {
+  return {
+    rest: {
+      issues: {
+        listComments: jest.fn().mockResolvedValue({ data: existingComments }),
+        createComment: jest.fn().mockResolvedValue({ data: { html_url: 'https://github.com/test-owner/test-repo/issues/1#issuecomment-new' } }),
+        updateComment: jest.fn().mockResolvedValue({ data: { html_url: 'https://github.com/test-owner/test-repo/issues/1#issuecomment-updated' } }),
+      },
+    },
+  };
+}
+
+function createContextMock(prNumber) {
+  return {
+    payload: {
+      pull_request: prNumber ? { number: prNumber } : undefined,
+    },
+    repo: { owner: 'test-owner', repo: 'test-repo' },
+  };
+}
+
+function limitExceededResponse(limit, used) {
+  return errorResponse(403, 'Forbidden', {
+    error: 'LIMIT_EXCEEDED',
+    detail: {
+      limits: [{ limit, used }],
+    },
+  });
+}
 
 describe('pipelines-credentials action', () => {
   describe('happy path', () => {
@@ -108,6 +147,128 @@ describe('pipelines-credentials action', () => {
 
       expect(core.setOutput).toHaveBeenCalledWith('PIPELINES_TOKEN', 'fallback-pat');
       expect(fetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('LIMIT_EXCEEDED behavior', () => {
+    test('writes job summary and falls back to FALLBACK_TOKEN', async () => {
+      const core = createCoreMock();
+      const fetch = createFetchMock([limitExceededResponse(100, 120)]);
+
+      await runAction({
+        coreMock: core,
+        fetchMock: fetch,
+        env: DEFAULT_ENV,
+        contextMock: createContextMock(),
+      });
+
+      expect(core.summary.addHeading).toHaveBeenCalledWith('Your Pipelines have been paused');
+      expect(core.summary.addRaw).toHaveBeenCalledWith(
+        expect.stringContaining('**100** infrastructure units')
+      );
+      expect(core.summary.write).toHaveBeenCalled();
+      expect(core.setOutput).toHaveBeenCalledWith('PIPELINES_TOKEN', 'fallback-pat');
+    });
+
+    test('creates PR comment when no existing comment', async () => {
+      const core = createCoreMock();
+      const fetch = createFetchMock([limitExceededResponse(100, 120)]);
+      const githubMock = createGithubMock();
+      const contextMock = createContextMock(42);
+
+      await runAction({
+        coreMock: core,
+        fetchMock: fetch,
+        env: DEFAULT_ENV,
+        githubMock,
+        contextMock,
+      });
+
+      expect(githubMock.rest.issues.createComment).toHaveBeenCalledWith({
+        owner: 'test-owner',
+        repo: 'test-repo',
+        issue_number: 42,
+        body: expect.stringContaining('Your Gruntwork Pipelines have been paused'),
+      });
+      expect(githubMock.rest.issues.updateComment).not.toHaveBeenCalled();
+      expect(core.setOutput).toHaveBeenCalledWith('PIPELINES_TOKEN', 'fallback-pat');
+    });
+
+    test('updates existing PR comment instead of creating a new one', async () => {
+      const core = createCoreMock();
+      const fetch = createFetchMock([limitExceededResponse(100, 120)]);
+      const existingComment = { id: 999, body: '<!-- pipelines-limit-exceeded -->\n## old content' };
+      const githubMock = createGithubMock([existingComment]);
+      const contextMock = createContextMock(42);
+
+      await runAction({
+        coreMock: core,
+        fetchMock: fetch,
+        env: DEFAULT_ENV,
+        githubMock,
+        contextMock,
+      });
+
+      expect(githubMock.rest.issues.updateComment).toHaveBeenCalledWith({
+        owner: 'test-owner',
+        repo: 'test-repo',
+        comment_id: 999,
+        body: expect.stringContaining('Your Gruntwork Pipelines have been paused'),
+      });
+      expect(githubMock.rest.issues.createComment).not.toHaveBeenCalled();
+    });
+
+    test('does NOT write summary or comment for a normal 403', async () => {
+      const core = createCoreMock();
+      const fetch = createFetchMock([errorResponse(403, 'Forbidden')]);
+      const githubMock = createGithubMock();
+      const contextMock = createContextMock(42);
+
+      await runAction({
+        coreMock: core,
+        fetchMock: fetch,
+        env: DEFAULT_ENV,
+        githubMock,
+        contextMock,
+      });
+
+      expect(core.summary.write).not.toHaveBeenCalled();
+      expect(githubMock.rest.issues.createComment).not.toHaveBeenCalled();
+      expect(core.setOutput).toHaveBeenCalledWith('PIPELINES_TOKEN', 'fallback-pat');
+    });
+
+    test('handles PR comment failure gracefully', async () => {
+      const core = createCoreMock();
+      const fetch = createFetchMock([limitExceededResponse(100, 120)]);
+      const githubMock = createGithubMock();
+      githubMock.rest.issues.listComments.mockRejectedValue(new Error('Resource not accessible by integration'));
+      const contextMock = createContextMock(42);
+
+      await runAction({
+        coreMock: core,
+        fetchMock: fetch,
+        env: DEFAULT_ENV,
+        githubMock,
+        contextMock,
+      });
+
+      expect(core.summary.write).toHaveBeenCalled();
+      expect(core.setOutput).toHaveBeenCalledWith('PIPELINES_TOKEN', 'fallback-pat');
+    });
+
+    test('calls setFailed when LIMIT_EXCEEDED and no FALLBACK_TOKEN', async () => {
+      const core = createCoreMock();
+      const fetch = createFetchMock([limitExceededResponse(100, 120)]);
+
+      await runAction({
+        coreMock: core,
+        fetchMock: fetch,
+        env: { ...DEFAULT_ENV, FALLBACK_TOKEN: '' },
+        contextMock: createContextMock(),
+      });
+
+      expect(core.summary.write).toHaveBeenCalled();
+      expect(core.setFailed).toHaveBeenCalled();
     });
   });
 
