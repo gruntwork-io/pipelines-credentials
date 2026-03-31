@@ -164,7 +164,7 @@ describe('pipelines-credentials action', () => {
 
       expect(core.summary.addHeading).toHaveBeenCalledWith('Your Pipelines have been paused');
       expect(core.summary.addRaw).toHaveBeenCalledWith(
-        expect.stringContaining('**100** infrastructure units')
+        expect.stringContaining('**120 of 100** infrastructure units included in your plan—exceeding the limit by **20 units**')
       );
       expect(core.summary.write).toHaveBeenCalled();
       expect(core.setOutput).toHaveBeenCalledWith('PIPELINES_TOKEN', 'fallback-pat');

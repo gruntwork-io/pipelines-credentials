@@ -72,8 +72,11 @@ runs:
 
           const handleLimitExceeded = async (body) => {
             const limit = body?.detail?.limits?.[0]?.limit
-            const limitText = limit ? ` of **${limit}** infrastructure units` : ''
-            const message = `You've exceeded your plan's usage limit${limitText}. To continue using Pipelines, contact sales to upgrade your plan or request a one-time restoration of service during which you may reduce your usage.`
+            const used = body?.detail?.limits?.[0]?.used
+            const excess = used - limit
+            const devPortalUrl = 'https://app.gruntwork.io'
+            const salesEmail = 'sales@gruntwork.io'
+            const message = `You're now using **${used} of ${limit}** infrastructure units included in your plan—exceeding the limit by **${excess} units**. Effective immediately, **your pipelines have been paused** for all of your repositories.\n\nTo continue using Pipelines, [contact sales](mailto:${salesEmail}) to upgrade your plan or request a one-time restoration of service during which you may reduce your usage. You can view your current usage in the [Gruntwork Developer Portal](${devPortalUrl}).`
 
             await core.summary
               .addHeading('Your Pipelines have been paused')
