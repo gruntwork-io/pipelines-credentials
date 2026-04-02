@@ -87,7 +87,7 @@ function limitExceededResponse(limit, used) {
   });
 }
 
-describe('pipelines-credentials action (v2 - multi-token)', () => {
+describe('pipelines-credentials action', () => {
   describe('happy path', () => {
     test('fetches all tokens in parallel after single OIDC login', async () => {
       const core = createCoreMock();
@@ -106,9 +106,6 @@ describe('pipelines-credentials action (v2 - multi-token)', () => {
       expect(fetch.mock.calls[2][0]).toContain('/tokens/pat/pipelines-read/acme-corp');
       expect(fetch.mock.calls[3][0]).toContain('/tokens/pat/propose-infra-change/acme-corp');
 
-      expect(core.setOutput).toHaveBeenCalledWith('gruntwork_read', 'gruntwork-pat');
-      expect(core.setOutput).toHaveBeenCalledWith('org_read', 'org-pat');
-      expect(core.setOutput).toHaveBeenCalledWith('infra_write', 'infra-pat');
       expect(core.setOutput).toHaveBeenCalledWith('tokens_json', JSON.stringify({
         gruntwork_read: 'gruntwork-pat',
         org_read: 'org-pat',
@@ -130,9 +127,10 @@ describe('pipelines-credentials action (v2 - multi-token)', () => {
 
       await runAction({ coreMock: core, fetchMock: fetch, env: DEFAULT_ENV });
 
-      expect(core.setOutput).toHaveBeenCalledWith('gruntwork_read', 'gruntwork-pat');
-      expect(core.setOutput).toHaveBeenCalledWith('org_read', 'fallback-read-pat');
-      expect(core.setOutput).toHaveBeenCalledWith('infra_write', 'infra-pat');
+      const output = JSON.parse(core.setOutput.mock.calls.find(c => c[0] === 'tokens_json')[1]);
+      expect(output.gruntwork_read).toBe('gruntwork-pat');
+      expect(output.org_read).toBe('fallback-read-pat');
+      expect(output.infra_write).toBe('infra-pat');
       expect(core.setFailed).not.toHaveBeenCalled();
     });
 
@@ -151,7 +149,8 @@ describe('pipelines-credentials action (v2 - multi-token)', () => {
         env: { ...DEFAULT_ENV, PIPELINES_READ_TOKEN: '  padded-token  ' },
       });
 
-      expect(core.setOutput).toHaveBeenCalledWith('gruntwork_read', 'padded-token');
+      const output = JSON.parse(core.setOutput.mock.calls.find(c => c[0] === 'tokens_json')[1]);
+      expect(output.gruntwork_read).toBe('padded-token');
     });
   });
 
@@ -162,9 +161,10 @@ describe('pipelines-credentials action (v2 - multi-token)', () => {
 
       await runAction({ coreMock: core, fetchMock: createFetchMock([]), env: DEFAULT_ENV });
 
-      expect(core.setOutput).toHaveBeenCalledWith('gruntwork_read', 'fallback-read-pat');
-      expect(core.setOutput).toHaveBeenCalledWith('org_read', 'fallback-read-pat');
-      expect(core.setOutput).toHaveBeenCalledWith('infra_write', 'fallback-write-pat');
+      const output = JSON.parse(core.setOutput.mock.calls.find(c => c[0] === 'tokens_json')[1]);
+      expect(output.gruntwork_read).toBe('fallback-read-pat');
+      expect(output.org_read).toBe('fallback-read-pat');
+      expect(output.infra_write).toBe('fallback-write-pat');
       expect(core.setFailed).not.toHaveBeenCalled();
     });
 
@@ -176,9 +176,10 @@ describe('pipelines-credentials action (v2 - multi-token)', () => {
 
       await runAction({ coreMock: core, fetchMock: fetch, env: DEFAULT_ENV });
 
-      expect(core.setOutput).toHaveBeenCalledWith('gruntwork_read', 'fallback-read-pat');
-      expect(core.setOutput).toHaveBeenCalledWith('org_read', 'fallback-read-pat');
-      expect(core.setOutput).toHaveBeenCalledWith('infra_write', 'fallback-write-pat');
+      const output = JSON.parse(core.setOutput.mock.calls.find(c => c[0] === 'tokens_json')[1]);
+      expect(output.gruntwork_read).toBe('fallback-read-pat');
+      expect(output.org_read).toBe('fallback-read-pat');
+      expect(output.infra_write).toBe('fallback-write-pat');
       expect(core.setFailed).not.toHaveBeenCalled();
     });
 
@@ -231,9 +232,10 @@ describe('pipelines-credentials action (v2 - multi-token)', () => {
         expect.stringContaining('**120 of 100** infrastructure units included in your plan—exceeding the limit by **20 units**')
       );
       expect(core.summary.write).toHaveBeenCalled();
-      expect(core.setOutput).toHaveBeenCalledWith('gruntwork_read', 'fallback-read-pat');
-      expect(core.setOutput).toHaveBeenCalledWith('org_read', 'fallback-read-pat');
-      expect(core.setOutput).toHaveBeenCalledWith('infra_write', 'fallback-write-pat');
+      const output = JSON.parse(core.setOutput.mock.calls.find(c => c[0] === 'tokens_json')[1]);
+      expect(output.gruntwork_read).toBe('fallback-read-pat');
+      expect(output.org_read).toBe('fallback-read-pat');
+      expect(output.infra_write).toBe('fallback-write-pat');
     });
 
     test('creates PR comment when in PR context', async () => {
@@ -303,9 +305,10 @@ describe('pipelines-credentials action (v2 - multi-token)', () => {
 
       await runAction({ coreMock: core, fetchMock: fetch, env: DEFAULT_ENV });
 
-      expect(core.setOutput).toHaveBeenCalledWith('gruntwork_read', 'gruntwork-pat');
-      expect(core.setOutput).toHaveBeenCalledWith('org_read', 'org-pat');
-      expect(core.setOutput).toHaveBeenCalledWith('infra_write', 'infra-pat');
+      const output = JSON.parse(core.setOutput.mock.calls.find(c => c[0] === 'tokens_json')[1]);
+      expect(output.gruntwork_read).toBe('gruntwork-pat');
+      expect(output.org_read).toBe('org-pat');
+      expect(output.infra_write).toBe('infra-pat');
       expect(core.setFailed).not.toHaveBeenCalled();
     });
 
@@ -323,12 +326,11 @@ describe('pipelines-credentials action (v2 - multi-token)', () => {
 
       await runAction({ coreMock: core, fetchMock: fetch, env: DEFAULT_ENV });
 
-      // All tokens should be set (exact values depend on race order in parallel execution)
-      const setOutputCalls = core.setOutput.mock.calls.map(c => c[0]);
-      expect(setOutputCalls).toContain('gruntwork_read');
-      expect(setOutputCalls).toContain('org_read');
-      expect(setOutputCalls).toContain('infra_write');
-      expect(setOutputCalls).toContain('tokens_json');
+      // All tokens should be set in tokens_json
+      const output = JSON.parse(core.setOutput.mock.calls.find(c => c[0] === 'tokens_json')[1]);
+      expect(output).toHaveProperty('gruntwork_read');
+      expect(output).toHaveProperty('org_read');
+      expect(output).toHaveProperty('infra_write');
       expect(core.setFailed).not.toHaveBeenCalled();
     });
   });
@@ -351,7 +353,6 @@ describe('pipelines-credentials action (v2 - multi-token)', () => {
 
       await runAction({ coreMock: core, fetchMock: fetch, env: singleTokenEnv });
 
-      expect(core.setOutput).toHaveBeenCalledWith('my_token', 'single-pat');
       expect(core.setOutput).toHaveBeenCalledWith('tokens_json', JSON.stringify({ my_token: 'single-pat' }));
       expect(core.setFailed).not.toHaveBeenCalled();
     });

@@ -1,5 +1,5 @@
 name: Pipelines Credentials
-description: Fetch Pipelines Credentials (v2 - parallel multi-token)
+description: Fetch Pipelines Credentials
 inputs:
   token_requests:
     description: 'JSON array of token requests: [{"name": "...", "path": "...", "fallback_env": "..."}]'
@@ -165,7 +165,6 @@ runs:
               if (result.success) {
                 console.log(`[${result.name}] Using GitHubApp token`)
                 tokensOutput[result.name] = result.token
-                core.setOutput(result.name, result.token)
               } else {
                 const fallbackValue = process.env[result.fallback_env]
                 if (!fallbackValue) {
@@ -174,7 +173,6 @@ runs:
                 }
                 console.log(`[${result.name}] Using fallback token from ${result.fallback_env}`)
                 tokensOutput[result.name] = fallbackValue.trim()
-                core.setOutput(result.name, fallbackValue.trim())
               }
             }
           } else {
@@ -187,9 +185,7 @@ runs:
               }
               console.log(`[${req.name}] Using fallback token from ${req.fallback_env}`)
               tokensOutput[req.name] = fallbackValue.trim()
-              core.setOutput(req.name, fallbackValue.trim())
             }
           }
 
           core.setOutput('tokens_json', JSON.stringify(tokensOutput))
-

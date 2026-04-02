@@ -27,7 +27,6 @@ Each token request in the JSON array must have:
 
 ### Outputs
 
-- Individual outputs by name (e.g., `${{ steps.creds.outputs.gruntwork_read }}`)
 - `tokens_json`: JSON object with all tokens keyed by name
 
 ### Example
@@ -35,7 +34,7 @@ Each token request in the JSON array must have:
 ```yaml
 - name: Fetch all credentials
   id: creds
-  uses: gruntwork-io/pipelines-credentials@v2
+  uses: gruntwork-io/pipelines-credentials@main
   env:
     PIPELINES_READ_TOKEN: ${{ secrets.PIPELINES_READ_TOKEN }}
     INFRA_ROOT_WRITE_TOKEN: ${{ secrets.INFRA_ROOT_WRITE_TOKEN }}
@@ -49,11 +48,11 @@ Each token request in the JSON array must have:
 
 - name: Use tokens
   run: |
-    echo "Tokens are available as step outputs"
+    echo "Tokens are available via fromJson"
   env:
-    GRUNTWORK_READ_TOKEN: ${{ steps.creds.outputs.gruntwork_read }}
-    ORG_READ_TOKEN: ${{ steps.creds.outputs.org_read }}
-    INFRA_WRITE_TOKEN: ${{ steps.creds.outputs.infra_write }}
+    GRUNTWORK_READ_TOKEN: ${{ fromJson(steps.creds.outputs.tokens_json).gruntwork_read }}
+    ORG_READ_TOKEN: ${{ fromJson(steps.creds.outputs.tokens_json).org_read }}
+    INFRA_WRITE_TOKEN: ${{ fromJson(steps.creds.outputs.tokens_json).infra_write }}
 ```
 
 ## How it Works
