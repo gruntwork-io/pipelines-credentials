@@ -7,7 +7,7 @@ function getSandboxedFn() {
   if (!cachedFn) {
     const script = extractScript();
     cachedFn = new AsyncFunction(
-      'core', 'fetch', 'process', 'console', 'setTimeout', 'Math', 'github', 'context',
+      'core', 'fetch', 'process', 'console', 'setTimeout', 'Math', 'github', 'context', 'JSON',
       script
     );
   }
@@ -22,7 +22,7 @@ async function runAction({ coreMock, fetchMock, env = {}, githubMock = {}, conte
   const setTimeoutShim = (fn) => fn();
   const mathShim = { ...Math, random: () => 0.5, pow: Math.pow, round: Math.round };
 
-  await fn(coreMock, fetchMock, processShim, consoleShim, setTimeoutShim, mathShim, githubMock, contextMock);
+  await fn(coreMock, fetchMock, processShim, consoleShim, setTimeoutShim, mathShim, githubMock, contextMock, JSON);
 }
 
 module.exports = { runAction };

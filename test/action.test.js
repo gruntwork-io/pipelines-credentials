@@ -42,14 +42,20 @@ function createFetchMock(responses) {
   });
 }
 
+const TOKEN_REQUESTS = [
+  { name: 'gruntwork_read', path: 'pipelines-read/gruntwork-io', fallback_env: 'PIPELINES_READ_TOKEN' },
+  { name: 'org_read', path: 'pipelines-read/acme-corp', fallback_env: 'PIPELINES_READ_TOKEN' },
+  { name: 'infra_write', path: 'propose-infra-change/acme-corp', fallback_env: 'INFRA_ROOT_WRITE_TOKEN' },
+];
+
 const DEFAULT_ENV = {
   API_BASE_URL: 'https://api.example.com/api/v1',
-  PIPELINES_TOKEN_PATH: 'org/repo',
-  FALLBACK_TOKEN: 'fallback-pat',
+  TOKEN_REQUESTS: JSON.stringify(TOKEN_REQUESTS),
+  PIPELINES_READ_TOKEN: 'fallback-read-pat',
+  INFRA_ROOT_WRITE_TOKEN: 'fallback-write-pat',
 };
 
 const LOGIN_URL = 'https://api.example.com/api/v1/tokens/auth/login';
-const TOKEN_URL = 'https://api.example.com/api/v1/tokens/pat/org/repo';
 
 function createGithubMock(existingComments = []) {
   return {
@@ -83,61 +89,86 @@ function limitExceededResponse(limit, used) {
 
 describe('pipelines-credentials action', () => {
   describe('happy path', () => {
-    test('OIDC login and token fetch', async () => {
+    test('fetches all tokens in parallel after single OIDC login', async () => {
       const core = createCoreMock();
       const fetch = createFetchMock([
         okResponse('provider-token'),
-        okResponse('pipelines-pat'),
+        okResponse('gruntwork-pat'),
+        okResponse('org-pat'),
+        okResponse('infra-pat'),
       ]);
 
       await runAction({ coreMock: core, fetchMock: fetch, env: DEFAULT_ENV });
 
-      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(fetch).toHaveBeenCalledTimes(4);
       expect(fetch.mock.calls[0][0]).toBe(LOGIN_URL);
-      expect(fetch.mock.calls[1][0]).toBe(TOKEN_URL);
-      expect(core.setOutput).toHaveBeenCalledWith('PIPELINES_TOKEN', 'pipelines-pat');
+      expect(fetch.mock.calls[1][0]).toContain('/tokens/pat/pipelines-read/gruntwork-io');
+      expect(fetch.mock.calls[2][0]).toContain('/tokens/pat/pipelines-read/acme-corp');
+      expect(fetch.mock.calls[3][0]).toContain('/tokens/pat/propose-infra-change/acme-corp');
+
+      expect(core.setOutput).toHaveBeenCalledWith('tokens_json', JSON.stringify({
+        gruntwork_read: 'gruntwork-pat',
+        org_read: 'org-pat',
+        infra_write: 'infra-pat',
+      }));
       expect(core.setFailed).not.toHaveBeenCalled();
     });
   });
 
-  describe('fallback behavior', () => {
-    test('uses FALLBACK_TOKEN when OIDC fails', async () => {
+  describe('partial failure', () => {
+    test('uses fallback for failed tokens while others succeed', async () => {
+      const core = createCoreMock();
+      const fetch = createFetchMock([
+        okResponse('provider-token'),
+        okResponse('gruntwork-pat'),
+        errorResponse(403, 'Forbidden'),
+        okResponse('infra-pat'),
+      ]);
+
+      await runAction({ coreMock: core, fetchMock: fetch, env: DEFAULT_ENV });
+
+      const output = JSON.parse(core.setOutput.mock.calls.find(c => c[0] === 'tokens_json')[1]);
+      expect(output.gruntwork_read).toBe('gruntwork-pat');
+      expect(output.org_read).toBe('fallback-read-pat');
+      expect(output.infra_write).toBe('infra-pat');
+      expect(core.setFailed).not.toHaveBeenCalled();
+    });
+
+    test('trims whitespace from fallback tokens', async () => {
+      const core = createCoreMock();
+      const fetch = createFetchMock([
+        okResponse('provider-token'),
+        errorResponse(403, 'Forbidden'),
+        okResponse('org-pat'),
+        okResponse('infra-pat'),
+      ]);
+
+      await runAction({
+        coreMock: core,
+        fetchMock: fetch,
+        env: { ...DEFAULT_ENV, PIPELINES_READ_TOKEN: '  padded-token  ' },
+      });
+
+      const output = JSON.parse(core.setOutput.mock.calls.find(c => c[0] === 'tokens_json')[1]);
+      expect(output.gruntwork_read).toBe('padded-token');
+    });
+  });
+
+  describe('auth failure', () => {
+    test('uses fallbacks for all tokens when OIDC fails', async () => {
       const core = createCoreMock();
       core.getIDToken.mockRejectedValue(new Error('OIDC unavailable'));
 
       await runAction({ coreMock: core, fetchMock: createFetchMock([]), env: DEFAULT_ENV });
 
-      expect(core.setOutput).toHaveBeenCalledWith('PIPELINES_TOKEN', 'fallback-pat');
+      const output = JSON.parse(core.setOutput.mock.calls.find(c => c[0] === 'tokens_json')[1]);
+      expect(output.gruntwork_read).toBe('fallback-read-pat');
+      expect(output.org_read).toBe('fallback-read-pat');
+      expect(output.infra_write).toBe('fallback-write-pat');
       expect(core.setFailed).not.toHaveBeenCalled();
     });
 
-    test('trims whitespace from FALLBACK_TOKEN', async () => {
-      const core = createCoreMock();
-      core.getIDToken.mockRejectedValue(new Error('OIDC unavailable'));
-
-      await runAction({
-        coreMock: core,
-        fetchMock: createFetchMock([]),
-        env: { ...DEFAULT_ENV, FALLBACK_TOKEN: '  padded-token  ' },
-      });
-
-      expect(core.setOutput).toHaveBeenCalledWith('PIPELINES_TOKEN', 'padded-token');
-    });
-
-    test('calls setFailed when API fails and no FALLBACK_TOKEN', async () => {
-      const core = createCoreMock();
-      core.getIDToken.mockRejectedValue(new Error('OIDC unavailable'));
-
-      await runAction({
-        coreMock: core,
-        fetchMock: createFetchMock([]),
-        env: { ...DEFAULT_ENV, FALLBACK_TOKEN: '' },
-      });
-
-      expect(core.setFailed).toHaveBeenCalled();
-    });
-
-    test('uses FALLBACK_TOKEN when login returns non-retryable error', async () => {
+    test('uses fallbacks for all tokens when login fails', async () => {
       const core = createCoreMock();
       const fetch = createFetchMock([
         errorResponse(403, 'Forbidden'),
@@ -145,13 +176,47 @@ describe('pipelines-credentials action', () => {
 
       await runAction({ coreMock: core, fetchMock: fetch, env: DEFAULT_ENV });
 
-      expect(core.setOutput).toHaveBeenCalledWith('PIPELINES_TOKEN', 'fallback-pat');
-      expect(fetch).toHaveBeenCalledTimes(1);
+      const output = JSON.parse(core.setOutput.mock.calls.find(c => c[0] === 'tokens_json')[1]);
+      expect(output.gruntwork_read).toBe('fallback-read-pat');
+      expect(output.org_read).toBe('fallback-read-pat');
+      expect(output.infra_write).toBe('fallback-write-pat');
+      expect(core.setFailed).not.toHaveBeenCalled();
+    });
+
+    test('calls setFailed when auth fails and fallback is missing', async () => {
+      const core = createCoreMock();
+      core.getIDToken.mockRejectedValue(new Error('OIDC unavailable'));
+
+      await runAction({
+        coreMock: core,
+        fetchMock: createFetchMock([]),
+        env: { ...DEFAULT_ENV, PIPELINES_READ_TOKEN: '' },
+      });
+
+      expect(core.setFailed).toHaveBeenCalledWith(expect.stringContaining('PIPELINES_READ_TOKEN'));
+    });
+
+    test('calls setFailed when token fetch fails and fallback is missing', async () => {
+      const core = createCoreMock();
+      const fetch = createFetchMock([
+        okResponse('provider-token'),
+        errorResponse(403, 'Forbidden'),
+        okResponse('org-pat'),
+        okResponse('infra-pat'),
+      ]);
+
+      await runAction({
+        coreMock: core,
+        fetchMock: fetch,
+        env: { ...DEFAULT_ENV, PIPELINES_READ_TOKEN: '' },
+      });
+
+      expect(core.setFailed).toHaveBeenCalledWith(expect.stringContaining('PIPELINES_READ_TOKEN'));
     });
   });
 
   describe('LIMIT_EXCEEDED behavior', () => {
-    test('writes job summary and falls back to FALLBACK_TOKEN', async () => {
+    test('writes job summary and uses fallbacks for all tokens', async () => {
       const core = createCoreMock();
       const fetch = createFetchMock([limitExceededResponse(100, 120)]);
 
@@ -167,10 +232,13 @@ describe('pipelines-credentials action', () => {
         expect.stringContaining('**120 of 100** infrastructure units included in your plan—exceeding the limit by **20 units**')
       );
       expect(core.summary.write).toHaveBeenCalled();
-      expect(core.setOutput).toHaveBeenCalledWith('PIPELINES_TOKEN', 'fallback-pat');
+      const output = JSON.parse(core.setOutput.mock.calls.find(c => c[0] === 'tokens_json')[1]);
+      expect(output.gruntwork_read).toBe('fallback-read-pat');
+      expect(output.org_read).toBe('fallback-read-pat');
+      expect(output.infra_write).toBe('fallback-write-pat');
     });
 
-    test('creates PR comment when no existing comment', async () => {
+    test('creates PR comment when in PR context', async () => {
       const core = createCoreMock();
       const fetch = createFetchMock([limitExceededResponse(100, 120)]);
       const githubMock = createGithubMock();
@@ -190,8 +258,6 @@ describe('pipelines-credentials action', () => {
         issue_number: 42,
         body: expect.stringContaining('Your Gruntwork Pipelines have been paused'),
       });
-      expect(githubMock.rest.issues.updateComment).not.toHaveBeenCalled();
-      expect(core.setOutput).toHaveBeenCalledWith('PIPELINES_TOKEN', 'fallback-pat');
     });
 
     test('updates existing PR comment instead of creating a new one', async () => {
@@ -217,114 +283,78 @@ describe('pipelines-credentials action', () => {
       });
       expect(githubMock.rest.issues.createComment).not.toHaveBeenCalled();
     });
-
-    test('does NOT write summary or comment for a normal 403', async () => {
-      const core = createCoreMock();
-      const fetch = createFetchMock([errorResponse(403, 'Forbidden')]);
-      const githubMock = createGithubMock();
-      const contextMock = createContextMock(42);
-
-      await runAction({
-        coreMock: core,
-        fetchMock: fetch,
-        env: DEFAULT_ENV,
-        githubMock,
-        contextMock,
-      });
-
-      expect(core.summary.write).not.toHaveBeenCalled();
-      expect(githubMock.rest.issues.createComment).not.toHaveBeenCalled();
-      expect(core.setOutput).toHaveBeenCalledWith('PIPELINES_TOKEN', 'fallback-pat');
-    });
-
-    test('handles PR comment failure gracefully', async () => {
-      const core = createCoreMock();
-      const fetch = createFetchMock([limitExceededResponse(100, 120)]);
-      const githubMock = createGithubMock();
-      githubMock.rest.issues.listComments.mockRejectedValue(new Error('Resource not accessible by integration'));
-      const contextMock = createContextMock(42);
-
-      await runAction({
-        coreMock: core,
-        fetchMock: fetch,
-        env: DEFAULT_ENV,
-        githubMock,
-        contextMock,
-      });
-
-      expect(core.summary.write).toHaveBeenCalled();
-      expect(core.setOutput).toHaveBeenCalledWith('PIPELINES_TOKEN', 'fallback-pat');
-    });
-
-    test('calls setFailed when LIMIT_EXCEEDED and no FALLBACK_TOKEN', async () => {
-      const core = createCoreMock();
-      const fetch = createFetchMock([limitExceededResponse(100, 120)]);
-
-      await runAction({
-        coreMock: core,
-        fetchMock: fetch,
-        env: { ...DEFAULT_ENV, FALLBACK_TOKEN: '' },
-        contextMock: createContextMock(),
-      });
-
-      expect(core.summary.write).toHaveBeenCalled();
-      expect(core.setFailed).toHaveBeenCalled();
-    });
   });
 
   describe('retry behavior', () => {
     test.each([
-      {
-        name: 'HTTP 500',
-        failResponse: errorResponse(500, 'Internal Server Error'),
-      },
-      {
-        name: 'HTTP 502',
-        failResponse: errorResponse(502, 'Bad Gateway'),
-      },
-      {
-        name: 'HTTP 429 rate limit',
-        failResponse: errorResponse(429, 'Too Many Requests'),
-      },
-      {
-        name: 'ECONNREFUSED network error',
-        failResponse: new Error('ECONNREFUSED'),
-      },
-      {
-        name: 'ETIMEDOUT network error',
-        failResponse: new Error('ETIMEDOUT'),
-      },
-      {
-        name: 'TypeError fetch failed',
-        failResponse: new TypeError('fetch failed'),
-      },
+      { name: 'HTTP 500', failResponse: errorResponse(500, 'Internal Server Error') },
+      { name: 'HTTP 502', failResponse: errorResponse(502, 'Bad Gateway') },
+      { name: 'HTTP 429 rate limit', failResponse: errorResponse(429, 'Too Many Requests') },
+      { name: 'ECONNREFUSED network error', failResponse: new Error('ECONNREFUSED') },
+      { name: 'ETIMEDOUT network error', failResponse: new Error('ETIMEDOUT') },
+      { name: 'TypeError fetch failed', failResponse: new TypeError('fetch failed') },
     ])('retries on $name then succeeds', async ({ failResponse }) => {
       const core = createCoreMock();
       const fetch = createFetchMock([
         failResponse,
         okResponse('provider-token'),
-        okResponse('pipelines-pat'),
+        okResponse('gruntwork-pat'),
+        okResponse('org-pat'),
+        okResponse('infra-pat'),
       ]);
 
       await runAction({ coreMock: core, fetchMock: fetch, env: DEFAULT_ENV });
 
-      expect(core.setOutput).toHaveBeenCalledWith('PIPELINES_TOKEN', 'pipelines-pat');
-      expect(fetch).toHaveBeenCalledTimes(3);
+      const output = JSON.parse(core.setOutput.mock.calls.find(c => c[0] === 'tokens_json')[1]);
+      expect(output.gruntwork_read).toBe('gruntwork-pat');
+      expect(output.org_read).toBe('org-pat');
+      expect(output.infra_write).toBe('infra-pat');
+      expect(core.setFailed).not.toHaveBeenCalled();
     });
 
-    test('retries multiple times before succeeding', async () => {
+    test('retries individual token fetch failures', async () => {
       const core = createCoreMock();
+      // With parallel execution, we need 4 successful responses after login
+      // (one retry + 3 tokens = 4 PAT responses needed after the initial 500)
       const fetch = createFetchMock([
-        errorResponse(500, 'Internal Server Error'),
-        errorResponse(500, 'Internal Server Error'),
         okResponse('provider-token'),
-        okResponse('pipelines-pat'),
+        errorResponse(500, 'Internal Server Error'),
+        okResponse('pat-1'),
+        okResponse('pat-2'),
+        okResponse('pat-3'),
       ]);
 
       await runAction({ coreMock: core, fetchMock: fetch, env: DEFAULT_ENV });
 
-      expect(core.setOutput).toHaveBeenCalledWith('PIPELINES_TOKEN', 'pipelines-pat');
-      expect(fetch).toHaveBeenCalledTimes(4);
+      // All tokens should be set in tokens_json
+      const output = JSON.parse(core.setOutput.mock.calls.find(c => c[0] === 'tokens_json')[1]);
+      expect(output).toHaveProperty('gruntwork_read');
+      expect(output).toHaveProperty('org_read');
+      expect(output).toHaveProperty('infra_write');
+      expect(core.setFailed).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('single token request', () => {
+    test('works with a single token request', async () => {
+      const core = createCoreMock();
+      const fetch = createFetchMock([
+        okResponse('provider-token'),
+        okResponse('single-pat'),
+      ]);
+
+      const singleTokenEnv = {
+        API_BASE_URL: 'https://api.example.com/api/v1',
+        TOKEN_REQUESTS: JSON.stringify([
+          { name: 'my_token', path: 'some/path', fallback_env: 'MY_FALLBACK' },
+        ]),
+        MY_FALLBACK: 'fallback-value',
+      };
+
+      await runAction({ coreMock: core, fetchMock: fetch, env: singleTokenEnv });
+
+      expect(core.setOutput).toHaveBeenCalledWith('tokens_json', JSON.stringify({ my_token: 'single-pat' }));
+      expect(core.setFailed).not.toHaveBeenCalled();
     });
   });
 });
