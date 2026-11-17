@@ -24,18 +24,20 @@ runs:
         script: |
           const sleep = (ms) => new Promise(r => setTimeout(r, ms))
 
-          const isRetryableError = (error) => {
-            const msg = String(error)
-            // Network / transient errors
-            if (/TypeError|ECONN|EPIPE|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|ECONNABORTED|socket disconnected|Request timeout|AbortError|TimeoutError|TLS/.test(msg)) return true
-            // HTTP 5xx or 429 (rate limit)
-            const statusMatch = msg.match(/HTTP (\d{3})/) || msg.match(/: (\d{3})$/)
-            if (statusMatch) {
-              const status = parseInt(statusMatch[1])
-              return status >= 500 || status === 429
+          const REQUEST_TIMEOUT_MS = 30_000
+          const HTTP_FORBIDDEN = 403
+          const HTTP_TOO_MANY_REQUESTS = 429
+          const TRANSPORT_FAILURE_PATTERN = /TypeError|ECONN|EPIPE|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|ECONNABORTED|socket disconnected|Request timeout|AbortError|TimeoutError|TLS/
+
+          class RetryableResponseError extends Error {
+            constructor(message, options) {
+              super(message, options)
+              this.name = "RetryableResponseError"
             }
-            return false
           }
+
+          const isRetryableError = (error) =>
+            error instanceof RetryableResponseError || TRANSPORT_FAILURE_PATTERN.test(String(error))
 
           const formatError = (error) => {
             let msg = `${error.name}: ${error.message}`
@@ -108,6 +110,75 @@ runs:
           const apiBaseURL = process.env.API_BASE_URL
           let providerToken = null
 
+          const login = async (idToken) => {
+            const { response, body } = await sendRequest(`${apiBaseURL}/tokens/auth/login`, {
+              method: "POST",
+              headers: { "Authorization": `Bearer ${idToken}` }
+            })
+            if (response.status === HTTP_FORBIDDEN) await reportIfLimitExceeded(body)
+            return extractToken(response, body)
+          }
+
+          const fetchPat = async (path) => {
+            const { response, body } = await sendRequest(`${apiBaseURL}/tokens/pat/${path}`, {
+              headers: { "Authorization": `Bearer ${providerToken}` }
+            })
+            return extractToken(response, body)
+          }
+
+          const reportIfLimitExceeded = async (body) => {
+            const parsedBody = parseJsonOrUndefined(body)
+            if (parsedBody?.error !== "LIMIT_EXCEEDED") return
+            await handleLimitExceeded(parsedBody).catch((error) =>
+              console.log(`Failed to report usage limit: ${error.message}`))
+          }
+
+          const sendRequest = async (url, init) => {
+            const response = await fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
+            return { response, body: await response.text() }
+          }
+
+          const extractToken = (response, body) => {
+            if (!response.ok) throw createHttpError(response, body)
+            const parsedBody = parseJsonOrUndefined(body)
+            if (parsedBody === undefined) {
+              throw new RetryableResponseError("Expected a JSON body", { cause: describeResponseWithBody(response, body) })
+            }
+            if (isToken(parsedBody?.token)) return parsedBody.token
+            throw new RetryableResponseError("Expected a token in the JSON body", { cause: describeResponse(response) })
+          }
+
+          const isToken = (value) => typeof value === "string" && value !== ""
+
+          const createHttpError = (response, body) => {
+            const cause = describeResponseWithBody(response, body)
+            const isRetryable = response.status >= 500 || response.status === HTTP_TOO_MANY_REQUESTS
+            return isRetryable
+              ? new RetryableResponseError(`HTTP ${response.status}`, { cause })
+              : new Error(`HTTP ${response.status}`, { cause })
+          }
+
+          const describeResponseWithBody = (response, body) =>
+            `${describeResponse(response)}, body: ${escapeLineBreaks(body)}`
+
+          const describeResponse = (response) => [
+            `HTTP ${response.status}`,
+            `content-type: ${response.headers.get("content-type")}`,
+            `server: ${response.headers.get("server")}`,
+            `x-vercel-id: ${response.headers.get("x-vercel-id")}`,
+            response.redirected && `redirected to: ${response.url}`
+          ].filter(Boolean).join(", ")
+
+          const escapeLineBreaks = (text) => text.replace(/\r/g, "\\r").replace(/\n/g, "\\n")
+
+          const parseJsonOrUndefined = (text) => {
+            try {
+              return JSON.parse(text)
+            } catch {
+              return undefined
+            }
+          }
+
           // Step 1 & 2: Get OIDC token and login (once for all tokens)
           try {
             const idToken = await withRetry(
@@ -115,24 +186,7 @@ runs:
               "getIDToken"
             )
 
-            providerToken = await withRetry(async () => {
-              const res = await fetch(`${apiBaseURL}/tokens/auth/login`, {
-                method: "POST",
-                headers: { "Authorization": `Bearer ${idToken}` }
-              })
-              if (!res.ok) {
-                if (res.status === 403) {
-                  try {
-                    const body = await res.json()
-                    if (body.error === "LIMIT_EXCEEDED") {
-                      await handleLimitExceeded(body)
-                    }
-                  } catch (_) {}
-                }
-                throw new Error(`HTTP ${res.status}: ${res.statusText}`)
-              }
-              return (await res.json()).token
-            }, "login")
+            providerToken = await withRetry(() => login(idToken), "login")
           } catch (error) {
             console.log(`Auth failed, using fallbacks for all tokens:`)
             console.log(`  ${formatError(error)}`)
@@ -145,13 +199,7 @@ runs:
             // Parallel fetch all tokens
             const fetchPromises = tokenRequests.map(async (req) => {
               try {
-                const token = await withRetry(async () => {
-                  const res = await fetch(`${apiBaseURL}/tokens/pat/${req.path}`, {
-                    headers: { "Authorization": `Bearer ${providerToken}` }
-                  })
-                  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`)
-                  return (await res.json()).token
-                }, `fetchToken:${req.name}`)
+                const token = await withRetry(() => fetchPat(req.path), `fetchToken:${req.name}`)
                 return { name: req.name, fallback_env: req.fallback_env, success: true, token }
               } catch (error) {
                 console.log(`[${req.name}] Failed to fetch PAT: ${formatError(error)}`)

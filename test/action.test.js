@@ -22,22 +22,43 @@ function errorResponse(status, statusText, body) {
   return { ok: false, status, statusText, body };
 }
 
+const HTML_PAGE = '<!DOCTYPE html><html><head><title>Checking your browser</title></head></html>';
+
+function htmlPageResponse() {
+  return {
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    bodyText: HTML_PAGE,
+    headers: { 'content-type': 'text/html', server: 'Vercel', 'x-vercel-id': 'iad1::abc123' },
+  };
+}
+
+function textResponse(status, bodyText) {
+  return { ok: status < 400, status, statusText: '', bodyText };
+}
+
+function readBodyText(mockResponse) {
+  if (mockResponse.bodyText !== undefined) return mockResponse.bodyText;
+  return mockResponse.body === undefined ? '' : JSON.stringify(mockResponse.body);
+}
+
 function createFetchMock(responses) {
   let callIndex = 0;
   return jest.fn(async () => {
     if (callIndex >= responses.length) {
       throw new Error(`Unexpected fetch call #${callIndex + 1}`);
     }
-    const resp = responses[callIndex++];
-    if (resp instanceof Error) throw resp;
+    const mockResponse = responses[callIndex++];
+    if (mockResponse instanceof Error || mockResponse instanceof DOMException) throw mockResponse;
     return {
-      ok: resp.ok,
-      status: resp.status,
-      statusText: resp.statusText,
-      json: async () => {
-        if (resp.body === undefined) throw new SyntaxError('Unexpected end of JSON input');
-        return resp.body;
-      },
+      ok: mockResponse.ok,
+      status: mockResponse.status,
+      statusText: mockResponse.statusText,
+      headers: new Headers(mockResponse.headers),
+      redirected: mockResponse.redirectedTo !== undefined,
+      url: mockResponse.redirectedTo,
+      text: async () => readBodyText(mockResponse),
     };
   });
 }
@@ -55,7 +76,24 @@ const DEFAULT_ENV = {
   INFRA_ROOT_WRITE_TOKEN: 'fallback-write-pat',
 };
 
+const SINGLE_TOKEN_ENV = {
+  API_BASE_URL: 'https://api.example.com/api/v1',
+  TOKEN_REQUESTS: JSON.stringify([{ name: 'my_token', path: 'some/path', fallback_env: 'MY_FALLBACK' }]),
+  MY_FALLBACK: 'fallback-value',
+};
+
 const LOGIN_URL = 'https://api.example.com/api/v1/tokens/auth/login';
+
+const MAX_ATTEMPTS = 5;
+
+function countEntriesContaining(logEntries, text) {
+  return logEntries.filter((entry) => entry.includes(text)).length;
+}
+
+function countFailureEntries(attempts) {
+  const finalFailureEntry = 1;
+  return attempts + finalFailureEntry;
+}
 
 function createGithubMock(existingComments = []) {
   return {
@@ -293,6 +331,11 @@ describe('pipelines-credentials action', () => {
       { name: 'ECONNREFUSED network error', failResponse: new Error('ECONNREFUSED') },
       { name: 'ETIMEDOUT network error', failResponse: new Error('ETIMEDOUT') },
       { name: 'TypeError fetch failed', failResponse: new TypeError('fetch failed') },
+      { name: 'request timeout', failResponse: new DOMException('The operation was aborted due to timeout', 'TimeoutError') },
+      { name: '200 with an HTML page', failResponse: htmlPageResponse() },
+      { name: '200 with JSON but no token', failResponse: textResponse(200, '{}') },
+      { name: '200 with JSON null', failResponse: textResponse(200, 'null') },
+      { name: '200 with an empty token', failResponse: textResponse(200, '{"token":""}') },
     ])('retries on $name then succeeds', async ({ failResponse }) => {
       const core = createCoreMock();
       const fetch = createFetchMock([
@@ -333,6 +376,97 @@ describe('pipelines-credentials action', () => {
       expect(output).toHaveProperty('infra_write');
       expect(core.setFailed).not.toHaveBeenCalled();
     });
+
+    test.each([
+      { name: '403', response: errorResponse(403, 'Forbidden') },
+      { name: '4xx whose body mentions a network error', response: textResponse(400, 'TypeError: Request timeout') },
+    ])('does not retry a $name', async ({ response }) => {
+      const fetch = createFetchMock([okResponse('provider-token'), response]);
+
+      await runAction({ coreMock: createCoreMock(), fetchMock: fetch, env: SINGLE_TOKEN_ENV });
+
+      expect(fetch).toHaveBeenCalledTimes(2);
+    });
+
+    test('uses the fallback when every attempt fails', async () => {
+      const core = createCoreMock();
+      const fetch = createFetchMock([okResponse('provider-token'), ...Array(MAX_ATTEMPTS).fill(htmlPageResponse())]);
+
+      await runAction({ coreMock: core, fetchMock: fetch, env: SINGLE_TOKEN_ENV });
+
+      expect(fetch).toHaveBeenCalledTimes(1 + MAX_ATTEMPTS);
+      expect(core.setOutput).toHaveBeenCalledWith('tokens_json', JSON.stringify({ my_token: 'fallback-value' }));
+    });
+  });
+
+  describe('failure logging', () => {
+    test('logs the status, headers and body of a failed response', async () => {
+      const fetch = createFetchMock([okResponse('provider-token'), ...Array(MAX_ATTEMPTS).fill(htmlPageResponse())]);
+
+      const { logEntries } = await runAction({ coreMock: createCoreMock(), fetchMock: fetch, env: SINGLE_TOKEN_ENV });
+
+      const expectedDescription =
+        `HTTP 200, content-type: text/html, server: Vercel, x-vercel-id: iad1::abc123, body: ${HTML_PAGE}`;
+      expect(countEntriesContaining(logEntries, expectedDescription)).toBe(countFailureEntries(MAX_ATTEMPTS));
+    });
+
+    test('logs the redirect target', async () => {
+      const redirected = { ...htmlPageResponse(), redirectedTo: 'https://login.example.com/' };
+      const fetch = createFetchMock([okResponse('provider-token'), ...Array(MAX_ATTEMPTS).fill(redirected)]);
+
+      const { logEntries } = await runAction({ coreMock: createCoreMock(), fetchMock: fetch, env: SINGLE_TOKEN_ENV });
+
+      expect(countEntriesContaining(logEntries, 'redirected to: https://login.example.com/'))
+        .toBe(countFailureEntries(MAX_ATTEMPTS));
+    });
+
+    test('escapes line breaks in a logged body', async () => {
+      const multiLineBody = '<html>\r\n::stop-commands::x\n</html>';
+      const fetch = createFetchMock([okResponse('provider-token'), textResponse(400, multiLineBody)]);
+
+      const { logEntries } = await runAction({ coreMock: createCoreMock(), fetchMock: fetch, env: SINGLE_TOKEN_ENV });
+
+      expect(countEntriesContaining(logEntries, 'body: <html>\\r\\n::stop-commands::x\\n</html>')).toBe(countFailureEntries(1));
+      expect(countEntriesContaining(logEntries, '\n::')).toBe(0);
+    });
+
+    test('never logs the JSON body of a 200', async () => {
+      const jsonBody = '{"access_token":"ghs_example"}';
+      const fetch = createFetchMock([okResponse('provider-token'), ...Array(MAX_ATTEMPTS).fill(textResponse(200, jsonBody))]);
+
+      const { logEntries } = await runAction({ coreMock: createCoreMock(), fetchMock: fetch, env: SINGLE_TOKEN_ENV });
+
+      expect(countEntriesContaining(logEntries, 'ghs_example')).toBe(0);
+      expect(countEntriesContaining(logEntries, 'body:')).toBe(0);
+      expect(countEntriesContaining(logEntries, 'Expected a token in the JSON body')).toBe(countFailureEntries(MAX_ATTEMPTS));
+    });
+
+    test('logs the JSON body of an error response', async () => {
+      const fetch = createFetchMock([okResponse('provider-token'), textResponse(403, '{"error":"Forbidden"}')]);
+
+      const { logEntries } = await runAction({ coreMock: createCoreMock(), fetchMock: fetch, env: SINGLE_TOKEN_ENV });
+
+      expect(countEntriesContaining(logEntries, 'body: {"error":"Forbidden"}')).toBe(countFailureEntries(1));
+    });
+
+    test('logs no bodies when every request succeeds', async () => {
+      const fetch = createFetchMock([okResponse('provider-token'), okResponse('single-pat')]);
+
+      const { logEntries } = await runAction({ coreMock: createCoreMock(), fetchMock: fetch, env: SINGLE_TOKEN_ENV });
+
+      expect(countEntriesContaining(logEntries, 'body:')).toBe(0);
+    });
+  });
+
+  describe('request timeout', () => {
+    test('gives every request a timeout signal', async () => {
+      const fetch = createFetchMock([okResponse('provider-token'), okResponse('single-pat')]);
+
+      await runAction({ coreMock: createCoreMock(), fetchMock: fetch, env: SINGLE_TOKEN_ENV });
+
+      const signals = fetch.mock.calls.map(([, init]) => init.signal);
+      expect(signals.filter((signal) => signal instanceof AbortSignal)).toHaveLength(2);
+    });
   });
 
   describe('single token request', () => {
@@ -343,15 +477,7 @@ describe('pipelines-credentials action', () => {
         okResponse('single-pat'),
       ]);
 
-      const singleTokenEnv = {
-        API_BASE_URL: 'https://api.example.com/api/v1',
-        TOKEN_REQUESTS: JSON.stringify([
-          { name: 'my_token', path: 'some/path', fallback_env: 'MY_FALLBACK' },
-        ]),
-        MY_FALLBACK: 'fallback-value',
-      };
-
-      await runAction({ coreMock: core, fetchMock: fetch, env: singleTokenEnv });
+      await runAction({ coreMock: core, fetchMock: fetch, env: SINGLE_TOKEN_ENV });
 
       expect(core.setOutput).toHaveBeenCalledWith('tokens_json', JSON.stringify({ my_token: 'single-pat' }));
       expect(core.setFailed).not.toHaveBeenCalled();

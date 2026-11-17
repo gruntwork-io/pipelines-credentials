@@ -23,6 +23,7 @@ async function runAction({ coreMock, fetchMock, env = {}, githubMock = {}, conte
   const mathShim = { ...Math, random: () => 0.5, pow: Math.pow, round: Math.round };
 
   await fn(coreMock, fetchMock, processShim, consoleShim, setTimeoutShim, mathShim, githubMock, contextMock, JSON);
+  return { logEntries: consoleShim.log.mock.calls.map((args) => args.join(' ')) };
 }
 
 module.exports = { runAction };

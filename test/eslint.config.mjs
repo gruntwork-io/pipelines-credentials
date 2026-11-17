@@ -13,6 +13,9 @@ export default [
         module: 'readonly',
         require: 'readonly',
         __dirname: 'readonly',
+        AbortSignal: 'readonly',
+        DOMException: 'readonly',
+        Headers: 'readonly',
         // Jest
         jest: 'readonly',
         describe: 'readonly',
